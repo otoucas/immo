@@ -36,40 +36,133 @@ with st.sidebar:
 # --- Source des données ---
 source_choice = st.radio("🔍 Source de recherche", ["Page Leboncoin", "Open Data ADEME"], horizontal=True)
 
+# -------------------------------
+# SOURCE : Leboncoin ou ADEME
+# -------------------------------
 if source_choice == "Page Leboncoin":
     url = st.text_input("Collez l'URL de la page Leboncoin :")
-    if url:
-        df = parse_leboncoin_html(url)
-    else:
-        df = pd.DataFrame()
+    lebon_infos = None
+    df = pd.DataFrame()  # par défaut vide
+
+    if st.button("Analyser l'annonce LeBoncoin"):
+        if not url:
+            st.warning("Collez une URL ou le HTML de l'annonce.")
+        else:
+            # parse_leboncoin_html doit renvoyer un dict (ex: {'surface':45, 'ville':'Paris', 'code_postal':'75010', 'dpe':'D', 'ges':'C'})
+            try:
+                lebon_infos = parse_leboncoin_html(url)
+            except Exception as e:
+                st.error(f"Erreur lors de l'analyse LeBonCoin : {e}")
+                lebon_infos = None
+
+            if not lebon_infos:
+                st.warning("Aucune information extraite depuis la page. Essayez d'uploader le HTML ou vérifier l'URL.")
+            else:
+                st.success("Infos extraites :")
+                st.json(lebon_infos)
+
+                # --- Option A : afficher les infos extraites en simple tableau
+                df = pd.DataFrame([lebon_infos])
+
+                # --- Option B (conseillée) : lancer recherche ADEME automatiquement selon ville/CP/surface
+                # Si on a au moins une ville ou code_postal, on peut interroger ADEME
+                q = lebon_infos.get("ville") or lebon_infos.get("code_postal") or ""
+                if q:
+                    st.info("Lancement d'une recherche ADEME basée sur les informations extraites...")
+                    # utilise la pagination par défaut (toutes pages) ou adapter en param
+                    raw_rows = fetch_ademe_all(q=q, page_mode_all=True, max_pages=None)
+                    if raw_rows:
+                        df_ademe = pd.DataFrame(raw_rows)
+                        # garder uniquement résultats géolocalisés
+                        if "latitude" in df_ademe.columns and "longitude" in df_ademe.columns:
+                            df_ademe = df_ademe.dropna(subset=["latitude", "longitude"])
+                        else:
+                            st.warning("Les résultats ADEME n'ont pas de coordonnées.")
+                        # appliquer filtres simples extraits depuis la/leboncoin
+                        # surface
+                        s = lebon_infos.get("surface")
+                        if s and "surface_habitable_logement" in df_ademe.columns:
+                            df_ademe = df_ademe[(df_ademe["surface_habitable_logement"] >= max(0, s-10)) &
+                                                (df_ademe["surface_habitable_logement"] <= s+10)]
+                        # dpe/ges
+                        dpe = lebon_infos.get("dpe")
+                        if dpe and "classe_consommation_energie" in df_ademe.columns:
+                            df_ademe = df_ademe[df_ademe["classe_consommation_energie"] == dpe]
+                        ges = lebon_infos.get("ges")
+                        if ges and "classe_estimation_ges" in df_ademe.columns:
+                            df_ademe = df_ademe[df_ademe["classe_estimation_ges"] == ges]
+
+                        if not df_ademe.empty:
+                            # normaliser colonnes manquantes (optionnel)
+                            # créer colonnes manquantes avec "?" pour le tableau/popup
+                            wanted = [
+                                "adresse_numero_voie","adresse_nom_voie","code_postal","commune",
+                                "classe_consommation_energie","date_consommation_energie",
+                                "classe_estimation_ges","date_estimation_ges",
+                                "surface_habitable_logement","nombre_batiments","latitude","longitude"
+                            ]
+                            for c in wanted:
+                                if c not in df_ademe.columns:
+                                    df_ademe[c] = "?"
+                            st.session_state.df_results = df_ademe.reset_index(drop=True)
+                            st.success(f"{len(df_ademe)} résultats ADEME récupérés et stockés.")
+                            df = st.session_state.df_results  # pour affichage immédiat
+                        else:
+                            st.warning("Aucun résultat ADEME après application des filtres extraits.")
+                    else:
+                        st.warning("Aucun résultat récupéré depuis l'API ADEME.")
+                # si pas de q, on se contente d'afficher les infos extraites dans df (single-row)
+    # fin analyse LBC
+
 else:
-    # Filtres de localisation
+    # -------------------------------
+    # Recherche via ADEME (manuelle)
+    # -------------------------------
     ville = st.text_input("Ville de recherche", st.session_state.get("ville", ""))
     nb_pages = st.number_input("Nombre de pages à récupérer", 1, 50, st.session_state.get("nb_pages", 5))
 
-    # Filtres de surface
+    # Surface min/max
     col1, col2 = st.columns(2)
     with col1:
-        smin = st.number_input("Surface minimale (m²)", min_value=0, value=0, step=10)
+        smin = st.number_input("Surface minimale (m²)", min_value=0, value=st.session_state.get("surface_min", 0), step=5)
     with col2:
-        smax = st.number_input("Surface maximale (m²)", min_value=0, value=500, step=10)
+        smax = st.number_input("Surface maximale (m²)", min_value=0, value=st.session_state.get("surface_max", 200), step=5)
 
-    # Filtre de rayon
-    rayon = st.number_input("Rayon (km)", min_value=0, value=10, step=1)
+    # Rayon
+    rayon = st.number_input("Rayon (km)", min_value=0, value=st.session_state.get("rayon_km", 10), step=1)
 
-    if st.button("🔎 Lancer la recherche"):
-        coords = geocode_city(ville)
-        if coords:
-            lat, lon = coords
-            df = fetch_ademe_all(ville, pages=nb_pages)
-            df = df[(df["surface_habitable_logement"] >= smin) & (df["surface_habitable_logement"] <= smax)]
-            df["distance"] = df.apply(
-                lambda r: distance_km(lat, lon, r.get("latitude", lat), r.get("longitude", lon)), axis=1
-            )
-            df = df[df["distance"] <= rayon]
-        else:
-            st.error("Ville non trouvée.")
+    if st.button("🔎 Lancer la recherche ADEME"):
+        if not (ville or st.session_state.get("code_postal")):
+            st.warning("Saisissez une ville ou un code postal pour lancer la recherche.")
             df = pd.DataFrame()
+        else:
+            q = ville or st.session_state.get("code_postal", "")
+            raw_rows = fetch_ademe_all(q=q, page_mode_all=(pagination_mode=="Toutes les pages"), max_pages=max_pages)
+            if not raw_rows:
+                st.warning("Aucun résultat ADEME trouvé pour cette requête.")
+                df = pd.DataFrame()
+            else:
+                df = pd.DataFrame(raw_rows)
+                if "latitude" in df.columns and "longitude" in df.columns:
+                    df = df.dropna(subset=["latitude","longitude"])
+                # application des filtres manuels
+                if "surface_habitable_logement" in df.columns:
+                    df = df[(df["surface_habitable_logement"] >= smin) & (df["surface_habitable_logement"] <= smax)]
+                # filtrage par rayon (si coords dispo)
+                if 'latitude' in df.columns and 'longitude' in df.columns and (st.session_state.get("clicked_lat") or ville):
+                    # si ville -> géocode, sinon utilise clicked coords
+                    if ville:
+                        coords = geocode_city(ville)
+                        if coords:
+                            latc, lonc = coords
+                        else:
+                            latc, lonc = None, None
+                    else:
+                        latc, lonc = st.session_state.get("clicked_lat"), st.session_state.get("clicked_lon")
+                    if latc and lonc and rayon > 0:
+                        df["distance"] = df.apply(lambda r: distance_km(latc, lonc, r["latitude"], r["longitude"]), axis=1)
+                        df = df[df["distance"] <= rayon]
+                st.session_state.df_results = df.reset_index(drop=True)
     else:
         df = pd.DataFrame()
 
