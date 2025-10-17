@@ -21,16 +21,59 @@ if 'selected_marker' not in st.session_state:
 
 # --- Sidebar : filtres ---
 st.sidebar.header("Filtres principaux")
+
 classe_energie_sel = st.sidebar.multiselect("Classe énergie (DPE)", list("ABCDEFG"), st.session_state.get("classe_energie", []))
 classe_ges_sel = st.sidebar.multiselect("Classe GES", list("ABCDEFG"), st.session_state.get("classe_ges", []))
-surface_slider = st.sidebar.slider("Surface (m²)", 0, 500, (st.session_state.get("surface_min",0), st.session_state.get("surface_max",200)))
+
+st.sidebar.subheader("Surface habitable (m²)")
+surface_min = st.sidebar.number_input("Min", 0, 1000, value=st.session_state.get("surface_min", 0))
+surface_max = st.sidebar.number_input("Max", 0, 1000, value=st.session_state.get("surface_max", 200))
+
+st.sidebar.subheader("Rayon de recherche (km)")
+rayon_km = st.sidebar.number_input("Rayon autour du centre", 0, 100, value=st.session_state.get("rayon_km", 10))
+
 code_postaux_input = st.sidebar.text_input("Code(s) postal(aux)", st.session_state.get("code_postal",""))
 ville_input = st.sidebar.text_input("Ville", st.session_state.get("ville",""))
-rayon_km = st.sidebar.slider("Rayon de recherche (km)", 1, 50, 10)
 
 center_mode = st.sidebar.selectbox("Mode de centre :", ["Centre officiel (ville)", "Cliquer sur la carte"])
 pagination_mode = st.sidebar.selectbox("Mode pagination :", ["Toutes les pages", "Limiter"])
 max_pages = st.sidebar.number_input("Max pages", 1, 50, 5) if pagination_mode != "Toutes les pages" else None
+
+# --- Filtres actifs et suppression ---
+st.sidebar.markdown("---")
+st.sidebar.subheader("Filtres actifs")
+active_filters = []
+
+if classe_energie_sel:
+    active_filters.append(f"DPE: {', '.join(classe_energie_sel)}")
+if classe_ges_sel:
+    active_filters.append(f"GES: {', '.join(classe_ges_sel)}")
+if surface_min != 0 or surface_max != 200:
+    active_filters.append(f"Surface: {surface_min}-{surface_max} m²")
+if code_postaux_input:
+    active_filters.append(f"Code postal: {code_postaux_input}")
+if ville_input:
+    active_filters.append(f"Ville: {ville_input}")
+if rayon_km != 10:
+    active_filters.append(f"Rayon: {rayon_km} km")
+
+for f in active_filters:
+    col1, col2 = st.sidebar.columns([3,1])
+    col1.write(f)
+    if col2.button("❌", key=f):
+        if "DPE" in f:
+            classe_energie_sel.clear()
+        elif "GES" in f:
+            classe_ges_sel.clear()
+        elif "Surface" in f:
+            surface_min, surface_max = 0, 200
+        elif "Code postal" in f:
+            code_postaux_input = ""
+        elif "Ville" in f:
+            ville_input = ""
+        elif "Rayon" in f:
+            rayon_km = 10
+        st.experimental_rerun()
 
 # --- Carte pour sélection si mode 'Cliquer' ---
 st.subheader("Sélection du centre sur la carte (si mode 'Cliquer')")
@@ -45,7 +88,6 @@ if center_mode == "Cliquer sur la carte":
 # --- Lancer recherche ---
 if st.sidebar.button("🔎 Lancer la recherche"):
 
-    smin, smax = surface_slider
     center_lat, center_lon = None, None
 
     if center_mode=="Cliquer" and st.session_state.clicked_lat:
@@ -69,7 +111,7 @@ if st.sidebar.button("🔎 Lancer la recherche"):
     if "classe_estimation_ges" in df.columns and classe_ges_sel:
         df = df[df["classe_estimation_ges"].isin(classe_ges_sel)]
     if "surface_habitable_logement" in df.columns:
-        df = df[(df["surface_habitable_logement"] >= smin) & (df["surface_habitable_logement"] <= smax)]
+        df = df[(df["surface_habitable_logement"] >= surface_min) & (df["surface_habitable_logement"] <= surface_max)]
 
     # Filtrage par rayon
     if center_lat and "latitude" in df.columns:
@@ -83,12 +125,10 @@ if st.sidebar.button("🔎 Lancer la recherche"):
 if not st.session_state.df_results.empty:
     df = st.session_state.df_results
     latc, lonc = df["latitude"].mean(), df["longitude"].mean()
-    # Choisir le centre selon ligne sélectionnée
     if st.session_state.selected_marker:
         latc, lonc = st.session_state.selected_marker
 
     m = folium.Map(location=[latc, lonc], zoom_start=12)
-    # Tiles pour choisir vue
     folium.TileLayer('OpenStreetMap').add_to(m)
     folium.TileLayer('Stamen Terrain').add_to(m)
     folium.TileLayer('Stamen Toner').add_to(m)
@@ -98,7 +138,6 @@ if not st.session_state.df_results.empty:
     mc = MarkerCluster().add_to(m)
 
     for _, r in df.iterrows():
-        # Adresse complète
         adresse = ""
         if r.get("adresse_numero_voie"):
             adresse += f"{r['adresse_numero_voie']} "
@@ -109,7 +148,6 @@ if not st.session_state.df_results.empty:
         if r.get("commune"):
             adresse += f"{r['commune']}"
 
-        # DPE / GES / surface / nb bâtiments / dates
         dpe = r.get("classe_consommation_energie", "?")
         dpe_date = r.get("date_consommation_energie", "?")
         ges = r.get("classe_estimation_ges", "?")
@@ -125,17 +163,13 @@ if not st.session_state.df_results.empty:
             f"<b>Nombre de bâtiments :</b> {nb_batiments}"
         )
 
-        folium.Marker(
-            [r["latitude"], r["longitude"]],
-            popup=popup_html
-        ).add_to(mc)
+        folium.Marker([r["latitude"], r["longitude"]], popup=popup_html).add_to(mc)
 
     st.subheader("Carte des résultats")
     st_folium(m, width=1000, height=600)
 
     # --- Tableau interactif ---
     st.subheader("Tableau des résultats")
-    # Colonnes à afficher dans le tableau
     display_cols = ["adresse_numero_voie","adresse_nom_voie","code_postal","commune",
                     "classe_consommation_energie","date_consommation_energie",
                     "classe_estimation_ges","date_estimation_ges",
@@ -143,18 +177,10 @@ if not st.session_state.df_results.empty:
     display_df = df[display_cols].copy()
 
     selected_row_idx = st.data_editor(display_df, use_container_width=True, num_rows="dynamic", key="table_selection")
-    
-    # Centrer carte sur la ligne sélectionnée
+
     if selected_row_idx is not None and len(selected_row_idx) > 0:
-        # Récupérer première ligne sélectionnée
         row = display_df.iloc[selected_row_idx[0]]
         st.session_state.selected_marker = (row["latitude"], row["longitude"])
         st.experimental_rerun()
 
-    # Export CSV
-    st.download_button(
-        "Exporter CSV",
-        df.to_csv(index=False).encode("utf-8"),
-        "resultats_dpe.csv",
-        "text/csv"
-    )
+    st.download_button("Exporter CSV", df.to_csv(index=False).encode("utf-8"), "resultats_dpe.csv", "text/csv")
