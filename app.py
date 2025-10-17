@@ -148,6 +148,15 @@ if st.sidebar.button("🔎 Lancer la recherche"):
         df["dist"] = df.apply(lambda r: distance_km(center_lat, center_lon, r["latitude"], r["longitude"]), axis=1)
         df = df[df["dist"] <= rayon_km]
 
+    # --- Remplir colonnes manquantes pour tableau ---
+    display_cols = ["adresse_numero_voie","adresse_nom_voie","code_postal","commune",
+                    "classe_consommation_energie","date_consommation_energie",
+                    "classe_estimation_ges","date_estimation_ges",
+                    "surface_habitable_logement","nombre_batiments","latitude","longitude"]
+    for col in display_cols:
+        if col not in df.columns:
+            df[col] = "?"
+    
     st.session_state.df_results = df
     st.success(f"{len(df)} résultats trouvés")
 
@@ -167,48 +176,10 @@ if not st.session_state.df_results.empty:
 
     for _, r in df.iterrows():
         adresse = ""
-        if r.get("adresse_numero_voie"):
+        if r.get("adresse_numero_voie") != "?":
             adresse += f"{r['adresse_numero_voie']} "
-        if r.get("adresse_nom_voie"):
+        if r.get("adresse_nom_voie") != "?":
             adresse += f"{r['adresse_nom_voie']}, "
-        if r.get("code_postal"):
+        if r.get("code_postal") != "?":
             adresse += f"{r['code_postal']} "
-        if r.get("commune"):
-            adresse += f"{r['commune']}"
-
-        dpe = r.get("classe_consommation_energie", "?")
-        dpe_date = r.get("date_consommation_energie", "?")
-        ges = r.get("classe_estimation_ges", "?")
-        ges_date = r.get("date_estimation_ges", "?")
-        surface = r.get("surface_habitable_logement", "?")
-        nb_batiments = r.get("nombre_batiments", "?")
-
-        popup_html = (
-            f"<b>Adresse :</b> {adresse}<br>"
-            f"<b>DPE :</b> {dpe} (date: {dpe_date})<br>"
-            f"<b>GES :</b> {ges} (date: {ges_date})<br>"
-            f"<b>Surface habitable :</b> {surface} m²<br>"
-            f"<b>Nombre de bâtiments :</b> {nb_batiments}"
-        )
-
-        folium.Marker([r["latitude"], r["longitude"]], popup=popup_html).add_to(mc)
-
-    st.subheader("Carte des résultats")
-    st_folium(m, width=1000, height=600)
-
-    # --- Tableau interactif ---
-    st.subheader("Tableau des résultats")
-    display_cols = ["adresse_numero_voie","adresse_nom_voie","code_postal","commune",
-                    "classe_consommation_energie","date_consommation_energie",
-                    "classe_estimation_ges","date_estimation_ges",
-                    "surface_habitable_logement","nombre_batiments","latitude","longitude"]
-    display_df = df[display_cols].copy()
-
-    selected_row_idx = st.data_editor(display_df, use_container_width=True, num_rows="dynamic", key="table_selection")
-
-    if selected_row_idx is not None and len(selected_row_idx) > 0:
-        row = display_df.iloc[selected_row_idx[0]]
-        st.session_state.selected_marker = (row["latitude"], row["longitude"])
-        st.experimental_rerun()
-
-    st.download_button("Exporter CSV", df.to_csv(index=False).encode("utf-8"), "resultats_dpe.csv", "text/csv")
+        if r.get("comm
