@@ -182,4 +182,47 @@ if not st.session_state.df_results.empty:
             adresse += f"{r['adresse_nom_voie']}, "
         if r.get("code_postal") != "?":
             adresse += f"{r['code_postal']} "
-        if r.get("comm
+        if r.get("commune") != "?":
+            adresse += f"{r['commune']}"
+
+        dpe = r.get("classe_consommation_energie", "?")
+        dpe_date = r.get("date_consommation_energie", "?")
+        ges = r.get("classe_estimation_ges", "?")
+        ges_date = r.get("date_estimation_ges", "?")
+        surface = r.get("surface_habitable_logement", "?")
+        nb_batiments = r.get("nombre_batiments", "?")
+
+        popup_html = (
+            f"<b>Adresse :</b> {adresse}<br>"
+            f"<b>DPE :</b> {dpe} (date: {dpe_date})<br>"
+            f"<b>GES :</b> {ges} (date: {ges_date})<br>"
+            f"<b>Surface habitable :</b> {surface} m²<br>"
+            f"<b>Nombre de bâtiments :</b> {nb_batiments}"
+        )
+
+        folium.Marker([r["latitude"], r["longitude"]], popup=popup_html).add_to(mc)
+
+    st.subheader("Carte des résultats")
+    st_folium(m, width=1000, height=600)
+
+    # --- Tableau interactif ---
+    st.subheader("Tableau des résultats")
+    display_df = df[display_cols].copy()
+
+    # Permet la sélection d'une ligne pour recentrer la carte
+    selected_rows = st.data_editor(display_df, use_container_width=True, num_rows="dynamic", key="table_selection")
+
+    if selected_rows is not None and len(selected_rows) > 0:
+        idx = selected_rows[0]
+        row = display_df.iloc[idx]
+        st.session_state.selected_marker = (row["latitude"], row["longitude"])
+        st.experimental_rerun()
+
+    # Export CSV
+    st.download_button(
+        "Exporter CSV",
+        display_df.to_csv(index=False).encode("utf-8"),
+        "resultats_dpe.csv",
+        "text/csv"
+    )
+
