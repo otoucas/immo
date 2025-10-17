@@ -9,23 +9,18 @@ from filters.storage import save_filter, load_filters, delete_filter
 st.set_page_config(page_title="Recherche DPE interactive", layout="wide")
 st.title("🏠 Recherche interactive DPE (Open Data France)")
 
-# --- Initialisation session_state pour persistance ---
+# --- Initialisation session_state ---
 if 'df_results' not in st.session_state:
     st.session_state.df_results = pd.DataFrame()
 if 'clicked_lat' not in st.session_state:
     st.session_state.clicked_lat = None
 if 'clicked_lon' not in st.session_state:
     st.session_state.clicked_lon = None
+if 'selected_marker' not in st.session_state:
+    st.session_state.selected_marker = None
 
-# --- Sidebar : Filtres & LeBonCoin ---
-st.sidebar.header("Filtres et import LeBonCoin")
-lbc_url = st.sidebar.text_input("Collez URL ou HTML LeBonCoin")
-if st.sidebar.button("Analyser l’annonce"):
-    infos = parse_leboncoin_html(lbc_url)
-    st.session_state.update(infos)
-    st.sidebar.json(infos)
-
-# --- Sidebar : filtres principaux ---
+# --- Sidebar : filtres ---
+st.sidebar.header("Filtres principaux")
 classe_energie_sel = st.sidebar.multiselect("Classe énergie (DPE)", list("ABCDEFG"), st.session_state.get("classe_energie", []))
 classe_ges_sel = st.sidebar.multiselect("Classe GES", list("ABCDEFG"), st.session_state.get("classe_ges", []))
 surface_slider = st.sidebar.slider("Surface (m²)", 0, 500, (st.session_state.get("surface_min",0), st.session_state.get("surface_max",200)))
@@ -36,36 +31,6 @@ rayon_km = st.sidebar.slider("Rayon de recherche (km)", 1, 50, 10)
 center_mode = st.sidebar.selectbox("Mode de centre :", ["Centre officiel (ville)", "Cliquer sur la carte"])
 pagination_mode = st.sidebar.selectbox("Mode pagination :", ["Toutes les pages", "Limiter"])
 max_pages = st.sidebar.number_input("Max pages", 1, 50, 5) if pagination_mode != "Toutes les pages" else None
-
-# --- Sauvegarde / chargement filtres ---
-st.sidebar.markdown("---")
-st.sidebar.subheader("💾 Sauvegarde / chargement filtres")
-saved_filters = load_filters()
-filter_names = list(saved_filters.keys())
-filter_select = st.sidebar.selectbox("Filtres sauvegardés", ["---"]+filter_names)
-
-col1, col2 = st.sidebar.columns(2)
-with col1:
-    if st.button("Charger filtre") and filter_select != "---":
-        st.session_state.update(saved_filters[filter_select])
-        st.experimental_rerun()
-with col2:
-    if st.button("Supprimer filtre") and filter_select != "---":
-        delete_filter(filter_select)
-        st.experimental_rerun()
-
-new_filter_name = st.sidebar.text_input("Nom nouveau filtre")
-if st.sidebar.button("Enregistrer filtre") and new_filter_name:
-    save_filter(new_filter_name, {
-        "classe_energie_sel": classe_energie_sel,
-        "classe_ges_sel": classe_ges_sel,
-        "surface_min": surface_slider[0],
-        "surface_max": surface_slider[1],
-        "code_postaux_input": code_postaux_input,
-        "ville": ville_input,
-        "rayon_km": rayon_km
-    })
-    st.sidebar.success(f"Filtre '{new_filter_name}' sauvegardé!")
 
 # --- Carte pour sélection si mode 'Cliquer' ---
 st.subheader("Sélection du centre sur la carte (si mode 'Cliquer')")
@@ -114,11 +79,22 @@ if st.sidebar.button("🔎 Lancer la recherche"):
     st.session_state.df_results = df
     st.success(f"{len(df)} résultats trouvés")
 
-# --- Affichage carte persistante avec popup complet ---
+# --- Affichage carte + popup + satellite + LayerControl ---
 if not st.session_state.df_results.empty:
     df = st.session_state.df_results
     latc, lonc = df["latitude"].mean(), df["longitude"].mean()
+    # Choisir le centre selon ligne sélectionnée
+    if st.session_state.selected_marker:
+        latc, lonc = st.session_state.selected_marker
+
     m = folium.Map(location=[latc, lonc], zoom_start=12)
+    # Tiles pour choisir vue
+    folium.TileLayer('OpenStreetMap').add_to(m)
+    folium.TileLayer('Stamen Terrain').add_to(m)
+    folium.TileLayer('Stamen Toner').add_to(m)
+    folium.TileLayer('Esri.WorldImagery').add_to(m)
+    folium.LayerControl().add_to(m)
+
     mc = MarkerCluster().add_to(m)
 
     for _, r in df.iterrows():
@@ -156,6 +132,24 @@ if not st.session_state.df_results.empty:
 
     st.subheader("Carte des résultats")
     st_folium(m, width=1000, height=600)
+
+    # --- Tableau interactif ---
+    st.subheader("Tableau des résultats")
+    # Colonnes à afficher dans le tableau
+    display_cols = ["adresse_numero_voie","adresse_nom_voie","code_postal","commune",
+                    "classe_consommation_energie","date_consommation_energie",
+                    "classe_estimation_ges","date_estimation_ges",
+                    "surface_habitable_logement","nombre_batiments","latitude","longitude"]
+    display_df = df[display_cols].copy()
+
+    selected_row_idx = st.data_editor(display_df, use_container_width=True, num_rows="dynamic", key="table_selection")
+    
+    # Centrer carte sur la ligne sélectionnée
+    if selected_row_idx is not None and len(selected_row_idx) > 0:
+        # Récupérer première ligne sélectionnée
+        row = display_df.iloc[selected_row_idx[0]]
+        st.session_state.selected_marker = (row["latitude"], row["longitude"])
+        st.experimental_rerun()
 
     # Export CSV
     st.download_button(
