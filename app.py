@@ -111,5 +111,21 @@ if run:
         m = folium.Map(location=[latc, lonc], zoom_start=12)
         mc = MarkerCluster().add_to(m)
         for _, r in df.iterrows():
-            folium.Marker([r["latitude"], r["longitude"]],
-                popup=f"{r.get('adresse_nom_voie','?')}<br>DPE: {r.get('classe_consommation_energie','?')} / GES: {r.get('classe_estimation
+            folium.Marker(
+                [r["latitude"], r["longitude"]],
+                popup=(
+                    f"{r.get('adresse_nom_voie','?')}<br>"
+                    f"DPE: {r.get('classe_consommation_energie','?')} / "
+                    f"GES: {r.get('classe_estimation_ges','?')}<br>"
+                    f"Surface: {r.get('surface_habitable_logement','?')} m²"
+                )
+            ).add_to(mc)
+        st.subheader("Carte des résultats")
+        st_folium(m, width=1000, height=600)
+
+    st.download_button(
+        "Exporter CSV",
+        df.to_csv(index=False).encode("utf-8"),
+        "resultats_dpe.csv",
+        "text/csv"
+    )
