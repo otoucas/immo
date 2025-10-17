@@ -1,5 +1,7 @@
-streamlit>=1.30.0
-pandas>=2.1.0
-requests>=2.31.0
-folium>=0.16.0
-streamlit-folium>=0.14.0
+streamlit
+pandas
+folium
+streamlit-folium
+requests
+beautifulsoup4
+lxml
