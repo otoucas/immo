@@ -25,6 +25,9 @@ display_cols = [
     "longitude",
 ]
 
+display_cols = [c for c in display_cols if c in df.columns]
+
+
 # --- Initialisation session_state ---
 if 'df_results' not in st.session_state:
     st.session_state.df_results = pd.DataFrame()
