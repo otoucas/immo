@@ -1,13 +1,14 @@
 import requests
 import re
 from math import radians, cos, sin, sqrt, atan2
+import streamlit as st
 
 # --- Géocodage ---
 def geocode_city(ville):
     try:
         url = "https://nominatim.openstreetmap.org/search"
         headers = {"User-Agent": "dpe-search-app/1.0 (+contact@example.com)"}
-        resp = requests.get(url, params={"q": ville, "format": "json", "limit": 1}, headers=headers, timeout=10)
+        resp = requests.get(url, params={"q": ville, "format": "json", "limit": 1"}, headers=headers, timeout=10)
         if resp.ok and resp.json():
             d = resp.json()[0]
             return float(d["lat"]), float(d["lon"])
@@ -47,22 +48,48 @@ def parse_leboncoin_html(html_text):
         pass
     return infos
 
-# --- Pagination ADEME ---
+# --- Pagination ADEME avec barre de progression ---
 def fetch_ademe_all(q="", page_mode_all=True, max_pages=None, page_size=300):
+    """
+    Récupère toutes les pages ADEME avec suivi progressif.
+    q : string recherche (ville, code postal...)
+    page_mode_all : bool, si True récupère toutes les pages
+    max_pages : nombre max de pages à récupérer si page_mode_all=False
+    page_size : nombre de résultats par page (max 300)
+    """
     base = "https://data.ademe.fr/data-fair/api/v1/datasets/dpe-france/lines"
     all_rows = []
     page = 1
+    if page_mode_all:
+        st.info("⏳ Récupération de toutes les pages ADEME (cela peut prendre quelques minutes)…")
+    else:
+        st.info(f"⏳ Récupération des {max_pages} premières pages ADEME…")
+    
+    progress_bar = st.progress(0)
+    
     while True:
         params = {"q": q, "size": page_size, "page": page}
-        resp = requests.get(base, params=params, timeout=15)
-        if not resp.ok:
+        try:
+            resp = requests.get(base, params=params, timeout=15)
+            if not resp.ok:
+                break
+            data = resp.json()
+            rows = data.get("results", [])
+            if not rows:
+                break
+            all_rows.extend(rows)
+            # Mise à jour de la barre de progression
+            if page_mode_all:
+                # On met à jour arbitrairement toutes les 10 pages
+                if page % 10 == 0:
+                    progress_bar.progress(min(page*5, 100))
+            else:
+                progress_bar.progress(int(page/max_pages*100))
+            page += 1
+            if not page_mode_all and max_pages and page > max_pages:
+                break
+        except Exception as e:
+            st.warning(f"Erreur récupération page {page}: {e}")
             break
-        data = resp.json()
-        rows = data.get("results", [])
-        all_rows.extend(rows)
-        if len(rows) < page_size:
-            break
-        page += 1
-        if not page_mode_all and max_pages and page > max_pages:
-            break
+    progress_bar.progress(100)
     return all_rows
