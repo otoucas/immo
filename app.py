@@ -9,6 +9,22 @@ from filters.storage import save_filter, load_filters, delete_filter
 st.set_page_config(page_title="Recherche DPE interactive", layout="wide")
 st.title("🏠 Recherche interactive DPE (Open Data France)")
 
+# Colonnes affichées dans la carte et le tableau
+display_cols = [
+    "adresse_numero_voie",
+    "adresse_nom_voie",
+    "code_postal",
+    "commune",
+    "classe_consommation_energie",
+    "date_consommation_energie",
+    "classe_estimation_ges",
+    "date_estimation_ges",
+    "surface_habitable_logement",
+    "nombre_batiments",
+    "latitude",
+    "longitude",
+]
+
 # --- Initialisation session_state ---
 if 'df_results' not in st.session_state:
     st.session_state.df_results = pd.DataFrame()
