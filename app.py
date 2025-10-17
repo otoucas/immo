@@ -39,7 +39,37 @@ center_mode = st.sidebar.selectbox("Mode de centre :", ["Centre officiel (ville)
 pagination_mode = st.sidebar.selectbox("Mode pagination :", ["Toutes les pages", "Limiter"])
 max_pages = st.sidebar.number_input("Max pages", 1, 50, 5) if pagination_mode != "Toutes les pages" else None
 
-# --- Filtres actifs et suppression ---
+# --- Sauvegarde / chargement filtres ---
+st.sidebar.markdown("---")
+st.sidebar.subheader("💾 Sauvegarde / chargement filtres")
+saved_filters = load_filters()
+filter_names = list(saved_filters.keys())
+filter_select = st.sidebar.selectbox("Filtres sauvegardés", ["---"]+filter_names)
+
+col1, col2 = st.sidebar.columns(2)
+with col1:
+    if st.button("Charger filtre") and filter_select != "---":
+        st.session_state.update(saved_filters[filter_select])
+        st.experimental_rerun()
+with col2:
+    if st.button("Supprimer filtre") and filter_select != "---":
+        delete_filter(filter_select)
+        st.experimental_rerun()
+
+new_filter_name = st.sidebar.text_input("Nom nouveau filtre")
+if st.sidebar.button("Enregistrer filtre") and new_filter_name:
+    save_filter(new_filter_name, {
+        "classe_energie": classe_energie_sel,
+        "classe_ges": classe_ges_sel,
+        "surface_min": surface_min,
+        "surface_max": surface_max,
+        "code_postal": code_postaux_input,
+        "ville": ville_input,
+        "rayon_km": rayon_km
+    })
+    st.sidebar.success(f"Filtre '{new_filter_name}' sauvegardé!")
+
+# --- Filtres actifs et suppression individuelle ---
 st.sidebar.markdown("---")
 st.sidebar.subheader("Filtres actifs")
 active_filters = []
@@ -121,7 +151,7 @@ if st.sidebar.button("🔎 Lancer la recherche"):
     st.session_state.df_results = df
     st.success(f"{len(df)} résultats trouvés")
 
-# --- Affichage carte + popup + satellite + LayerControl ---
+# --- Affichage carte + popup + tiles sécurisés ---
 if not st.session_state.df_results.empty:
     df = st.session_state.df_results
     latc, lonc = df["latitude"].mean(), df["longitude"].mean()
@@ -129,10 +159,8 @@ if not st.session_state.df_results.empty:
         latc, lonc = st.session_state.selected_marker
 
     m = folium.Map(location=[latc, lonc], zoom_start=12)
-    folium.TileLayer('OpenStreetMap').add_to(m)
-    folium.TileLayer('Stamen Terrain').add_to(m)
-    folium.TileLayer('Stamen Toner').add_to(m)
-    folium.TileLayer('Esri.WorldImagery').add_to(m)
+    folium.TileLayer('OpenStreetMap', name='Plan').add_to(m)
+    folium.TileLayer('Esri.WorldImagery', name='Satellite').add_to(m)
     folium.LayerControl().add_to(m)
 
     mc = MarkerCluster().add_to(m)
