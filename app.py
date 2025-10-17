@@ -11,52 +11,62 @@ from utils import (
     save_filters,
 )
 
-# ------------------------------------------------------------
-# Configuration de l'application
-# ------------------------------------------------------------
+# ----------------------------
+# Config
+# ----------------------------
 st.set_page_config(page_title="Immo Data Explorer", layout="wide")
-
 st.title("🏠 Immo Data Explorer")
-st.write("Analyse et visualisation de données immobilières (Leboncoin / ADEME).")
+st.write("Visualisation de données immobilières (Leboncoin / Open Data ADEME)")
 
-# ------------------------------------------------------------
-# Barre latérale : paramètres et filtres
-# ------------------------------------------------------------
+# ----------------------------
+# Sidebar : filtres et paramètres
+# ----------------------------
 st.sidebar.header("⚙️ Paramètres de recherche")
 
-# Charger les filtres précédemment enregistrés
 filters = load_filters()
 
-source_choice = st.sidebar.radio("Source de données :", ["Page Leboncoin", "Open Data ADEME"], index=0)
+source_choice = st.sidebar.radio("Source :", ["Page Leboncoin", "Open Data ADEME"], index=0)
 
-# Paramètres communs
+# Pagination ADEME
+pagination_mode = st.sidebar.selectbox(
+    "Mode de récupération ADEME",
+    ["Toutes les pages", "Nombre de pages"],
+    index=0
+)
+
+if pagination_mode == "Nombre de pages":
+    nb_pages = st.sidebar.number_input(
+        "Nombre de pages à récupérer", 1, 50, value=filters.get("nb_pages", 5), step=1
+    )
+else:
+    nb_pages = None
+
+# Filtres communs
 ville = st.sidebar.text_input("Ville", filters.get("ville", ""))
 surface_min = st.sidebar.number_input("Surface min (m²)", 0, 500, filters.get("surface_min", 0), step=5)
 surface_max = st.sidebar.number_input("Surface max (m²)", 0, 500, filters.get("surface_max", 200), step=5)
-rayon_km = st.sidebar.number_input("Rayon de recherche (km)", 0, 100, filters.get("rayon_km", 10), step=1)
-nb_pages = st.sidebar.number_input("Nombre de pages ADEME à récupérer", 1, 50, filters.get("nb_pages", 5), step=1)
+rayon_km = st.sidebar.number_input("Rayon (km)", 0, 100, filters.get("rayon_km", 10), step=1)
 
-# Boutons de gestion des filtres
-colf1, colf2 = st.sidebar.columns(2)
-if colf1.button("💾 Sauvegarder filtres"):
+# Sauvegarde / chargement
+col1, col2 = st.sidebar.columns(2)
+if col1.button("💾 Sauvegarder filtres"):
     save_filters({
         "ville": ville,
         "surface_min": surface_min,
         "surface_max": surface_max,
         "rayon_km": rayon_km,
-        "nb_pages": nb_pages,
+        "nb_pages": nb_pages if nb_pages else 0
     })
     st.sidebar.success("Filtres enregistrés ✅")
-
-if colf2.button("♻️ Recharger filtres"):
+if col2.button("♻️ Recharger filtres"):
     filters = load_filters()
     st.sidebar.experimental_rerun()
 
 st.sidebar.markdown("---")
 
-# ------------------------------------------------------------
-# Logique principale selon la source choisie
-# ------------------------------------------------------------
+# ----------------------------
+# Recherche
+# ----------------------------
 df = pd.DataFrame()
 
 if source_choice == "Page Leboncoin":
@@ -83,7 +93,7 @@ if source_choice == "Page Leboncoin":
                 if q:
                     try:
                         st.info("Recherche complémentaire ADEME…")
-                        df_ademe = fetch_ademe_all(q=q)
+                        df_ademe = fetch_ademe_all(q=q, pages=nb_pages)
                         if df_ademe is not None and not df_ademe.empty:
                             df = df_ademe
                             st.success(f"{len(df_ademe)} résultats trouvés via ADEME.")
@@ -103,28 +113,28 @@ else:
                     st.error("Ville non trouvée.")
                 else:
                     lat, lon = coords
-                    df = fetch_ademe_all(ville, pages=nb_pages)
+                    df = fetch_ademe_all(q=ville, pages=nb_pages)
                     if df is not None and not df.empty:
+                        # Filtre surface
                         if "surface_habitable_logement" in df.columns:
                             df = df[
-                                (df["surface_habitable_logement"] >= surface_min)
-                                & (df["surface_habitable_logement"] <= surface_max)
+                                (df["surface_habitable_logement"] >= surface_min) &
+                                (df["surface_habitable_logement"] <= surface_max)
                             ]
-                        if "latitude" in df.columns and "longitude" in df.columns:
-                            df["distance"] = df.apply(
-                                lambda r: distance_km(lat, lon, r["latitude"], r["longitude"]),
-                                axis=1,
-                            )
+                        # Filtre rayon
+                        if "latitude" in df.columns and "longitude" in df.columns and rayon_km > 0:
+                            df["distance"] = df.apply(lambda r: distance_km(lat, lon, r["latitude"], r["longitude"]), axis=1)
                             df = df[df["distance"] <= rayon_km]
+
                         st.success(f"{len(df)} résultats affichés.")
                     else:
                         st.warning("Aucun résultat trouvé.")
             except Exception as e:
                 st.error(f"Erreur : {e}")
 
-# ------------------------------------------------------------
-# Affichage carte et table
-# ------------------------------------------------------------
+# ----------------------------
+# Affichage carte et tableau
+# ----------------------------
 if not df.empty:
     display_cols = [c for c in df.columns if c.lower() not in ["id", "source"]]
     display_df = df[display_cols].copy()
