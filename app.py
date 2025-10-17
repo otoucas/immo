@@ -9,7 +9,7 @@ from filters.storage import save_filter, load_filters, delete_filter
 st.set_page_config(page_title="Recherche DPE interactive", layout="wide")
 st.title("🏠 Recherche interactive DPE (Open Data France)")
 
-# Colonnes affichées dans la carte et le tableau
+# colonnes à afficher dans le tableau et les pop-ups
 display_cols = [
     "adresse_numero_voie",
     "adresse_nom_voie",
@@ -172,11 +172,12 @@ if st.sidebar.button("🔎 Lancer la recherche"):
     st.session_state.df_results = df
     st.success(f"{len(df)} résultats trouvés")
 
-# --- Affichage carte + popup + tiles sécurisés ---
-if not st.session_state.df_results.empty:
+# --- Affichage carte + tableau ---
+if "df_results" in st.session_state and not st.session_state.df_results.empty:
     df = st.session_state.df_results
+
     latc, lonc = df["latitude"].mean(), df["longitude"].mean()
-    if st.session_state.selected_marker:
+    if st.session_state.get("selected_marker"):
         latc, lonc = st.session_state.selected_marker
 
     m = folium.Map(location=[latc, lonc], zoom_start=12)
@@ -211,11 +212,38 @@ if not st.session_state.df_results.empty:
             f"<b>Surface habitable :</b> {surface} m²<br>"
             f"<b>Nombre de bâtiments :</b> {nb_batiments}"
         )
-
         folium.Marker([r["latitude"], r["longitude"]], popup=popup_html).add_to(mc)
 
-    st.subheader("Carte des résultats")
+    st.subheader("🗺️ Carte des résultats")
     st_folium(m, width=1000, height=600)
+
+    # Tableau des résultats
+    st.subheader("📋 Tableau des résultats")
+    display_df = df[display_cols].copy()
+
+    selected_index = st.selectbox(
+        "Choisir une ligne à centrer :",
+        options=display_df.index,
+        format_func=lambda i: f"{display_df.loc[i, 'adresse_nom_voie']} - {display_df.loc[i, 'commune']}"
+        if 'adresse_nom_voie' in display_df.columns else f"Ligne {i+1}"
+    )
+
+    if st.button("📍 Recentrer sur cette adresse"):
+        row = display_df.loc[selected_index]
+        if "latitude" in row and "longitude" in row:
+            st.session_state.selected_marker = (row["latitude"], row["longitude"])
+            st.experimental_rerun()
+
+    st.download_button(
+        "💾 Exporter en CSV",
+        display_df.to_csv(index=False).encode("utf-8"),
+        "resultats_dpe.csv",
+        "text/csv"
+    )
+
+else:
+    st.info("➡️ Lancez une recherche pour afficher les résultats.")
+
 
 # --- Tableau interactif ---
 st.subheader("Tableau des résultats")
