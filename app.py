@@ -9,6 +9,14 @@ from filters.storage import save_filter, load_filters, delete_filter
 st.set_page_config(page_title="Recherche DPE interactive", layout="wide")
 st.title("🏠 Recherche interactive DPE (Open Data France)")
 
+# --- Initialisation session_state pour persistance ---
+if 'df_results' not in st.session_state:
+    st.session_state.df_results = pd.DataFrame()
+if 'clicked_lat' not in st.session_state:
+    st.session_state.clicked_lat = None
+if 'clicked_lon' not in st.session_state:
+    st.session_state.clicked_lon = None
+
 # --- Sidebar : Filtres & LeBonCoin ---
 st.sidebar.header("Filtres et import LeBonCoin")
 lbc_url = st.sidebar.text_input("Collez URL ou HTML LeBonCoin")
@@ -59,23 +67,24 @@ if st.sidebar.button("Enregistrer filtre") and new_filter_name:
     })
     st.sidebar.success(f"Filtre '{new_filter_name}' sauvegardé!")
 
-# --- Carte pour sélection si mode 'Cliquer'
-clicked_lat, clicked_lon = None, None
+# --- Carte pour sélection si mode 'Cliquer' ---
+st.subheader("Sélection du centre sur la carte (si mode 'Cliquer')")
 if center_mode == "Cliquer sur la carte":
-    st.subheader("Sélection du centre")
-    m = folium.Map(location=[46.6,2.4], zoom_start=6)
-    map_data = st_folium(m, height=400)
+    m_click = folium.Map(location=[46.6, 2.4], zoom_start=6)
+    map_data = st_folium(m_click, height=300)
     if map_data and map_data["last_clicked"]:
-        clicked_lat, clicked_lon = map_data["last_clicked"]["lat"], map_data["last_clicked"]["lng"]
-        st.success(f"Centre sélectionné : {clicked_lat:.4f},{clicked_lon:.4f}")
+        st.session_state.clicked_lat = map_data["last_clicked"]["lat"]
+        st.session_state.clicked_lon = map_data["last_clicked"]["lng"]
+        st.success(f"Centre sélectionné : {st.session_state.clicked_lat:.4f}, {st.session_state.clicked_lon:.4f}")
 
 # --- Lancer recherche ---
-run = st.sidebar.button("🔎 Lancer la recherche")
-if run:
+if st.sidebar.button("🔎 Lancer la recherche"):
+
     smin, smax = surface_slider
     center_lat, center_lon = None, None
-    if center_mode=="Cliquer" and clicked_lat:
-        center_lat, center_lon = clicked_lat, clicked_lon
+
+    if center_mode=="Cliquer" and st.session_state.clicked_lat:
+        center_lat, center_lon = st.session_state.clicked_lat, st.session_state.clicked_lon
     elif center_mode=="Centre officiel (ville)" and ville_input:
         center_lat, center_lon = geocode_city(ville_input)
 
@@ -83,45 +92,46 @@ if run:
     raw_rows = fetch_ademe_all(q, page_mode_all=(pagination_mode=="Toutes les pages"), max_pages=max_pages)
     if not raw_rows:
         st.warning("Aucun résultat trouvé.")
+        st.session_state.df_results = pd.DataFrame()
         st.stop()
 
     df = pd.DataFrame(raw_rows)
     df = df.dropna(subset=["latitude","longitude"])
 
-    # --- Filtrage sécurisé ---
+    # --- Filtrage ---
     if "classe_consommation_energie" in df.columns and classe_energie_sel:
         df = df[df["classe_consommation_energie"].isin(classe_energie_sel)]
     if "classe_estimation_ges" in df.columns and classe_ges_sel:
         df = df[df["classe_estimation_ges"].isin(classe_ges_sel)]
     if "surface_habitable_logement" in df.columns:
         df = df[(df["surface_habitable_logement"] >= smin) & (df["surface_habitable_logement"] <= smax)]
-    else:
-        st.warning("⚠️ La donnée 'surface_habitable_logement' n'est pas disponible pour ces résultats.")
 
     # Filtrage par rayon
     if center_lat and "latitude" in df.columns:
         df["dist"] = df.apply(lambda r: distance_km(center_lat, center_lon, r["latitude"], r["longitude"]), axis=1)
         df = df[df["dist"] <= rayon_km]
 
+    st.session_state.df_results = df
     st.success(f"{len(df)} résultats trouvés")
 
-    # Carte centrée automatiquement
-    if not df.empty:
-        latc, lonc = df["latitude"].mean(), df["longitude"].mean()
-        m = folium.Map(location=[latc, lonc], zoom_start=12)
-        mc = MarkerCluster().add_to(m)
-        for _, r in df.iterrows():
-            folium.Marker(
-                [r["latitude"], r["longitude"]],
-                popup=(
-                    f"{r.get('adresse_nom_voie','?')}<br>"
-                    f"DPE: {r.get('classe_consommation_energie','?')} / "
-                    f"GES: {r.get('classe_estimation_ges','?')}<br>"
-                    f"Surface: {r.get('surface_habitable_logement','?')} m²"
-                )
-            ).add_to(mc)
-        st.subheader("Carte des résultats")
-        st_folium(m, width=1000, height=600)
+# --- Affichage carte persistante ---
+if not st.session_state.df_results.empty:
+    df = st.session_state.df_results
+    latc, lonc = df["latitude"].mean(), df["longitude"].mean()
+    m = folium.Map(location=[latc, lonc], zoom_start=12)
+    mc = MarkerCluster().add_to(m)
+    for _, r in df.iterrows():
+        folium.Marker(
+            [r["latitude"], r["longitude"]],
+            popup=(
+                f"{r.get('adresse_nom_voie','?')}<br>"
+                f"DPE: {r.get('classe_consommation_energie','?')} / "
+                f"GES: {r.get('classe_estimation_ges','?')}<br>"
+                f"Surface: {r.get('surface_habitable_logement','?')} m²"
+            )
+        ).add_to(mc)
+    st.subheader("Carte des résultats")
+    st_folium(m, width=1000, height=600)
 
     st.download_button(
         "Exporter CSV",
