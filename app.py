@@ -40,6 +40,7 @@ col1, col2 = st.sidebar.columns(2)
 with col1:
     if st.button("Charger filtre") and filter_select != "---":
         st.session_state.update(saved_filters[filter_select])
+        st.experimental_rerun()
 with col2:
     if st.button("Supprimer filtre") and filter_select != "---":
         delete_filter(filter_select)
@@ -86,17 +87,21 @@ if run:
 
     df = pd.DataFrame(raw_rows)
     df = df.dropna(subset=["latitude","longitude"])
-    # Application des filtres
-    if classe_energie_sel:
+
+    # --- Filtrage sécurisé ---
+    if "classe_consommation_energie" in df.columns and classe_energie_sel:
         df = df[df["classe_consommation_energie"].isin(classe_energie_sel)]
-    if classe_ges_sel:
+    if "classe_estimation_ges" in df.columns and classe_ges_sel:
         df = df[df["classe_estimation_ges"].isin(classe_ges_sel)]
-    df = df[(df["surface_habitable_logement"]>=smin)&(df["surface_habitable_logement"]<=smax)]
+    if "surface_habitable_logement" in df.columns:
+        df = df[(df["surface_habitable_logement"] >= smin) & (df["surface_habitable_logement"] <= smax)]
+    else:
+        st.warning("⚠️ La donnée 'surface_habitable_logement' n'est pas disponible pour ces résultats.")
 
     # Filtrage par rayon
-    if center_lat:
+    if center_lat and "latitude" in df.columns:
         df["dist"] = df.apply(lambda r: distance_km(center_lat, center_lon, r["latitude"], r["longitude"]), axis=1)
-        df = df[df["dist"]<=rayon_km]
+        df = df[df["dist"] <= rayon_km]
 
     st.success(f"{len(df)} résultats trouvés")
 
