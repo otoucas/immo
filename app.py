@@ -205,16 +205,22 @@ if not st.session_state.df_results.empty:
     st.subheader("Carte des résultats")
     st_folium(m, width=1000, height=600)
 
-    # --- Tableau interactif ---
-    st.subheader("Tableau des résultats")
-    display_df = df[display_cols].copy()
+# --- Tableau interactif ---
+st.subheader("Tableau des résultats")
+display_df = df[display_cols].copy()
 
-    # Permet la sélection d'une ligne pour recentrer la carte
-    selected_rows = st.data_editor(display_df, use_container_width=True, num_rows="dynamic", key="table_selection")
+# Permet la sélection d'une ligne pour recentrer la carte
+st.markdown("🖱️ Cliquez sur une ligne pour centrer la carte sur l’adresse correspondante :")
 
-    if selected_rows is not None and len(selected_rows) > 0:
-        idx = selected_rows[0]
-        row = display_df.iloc[idx]
+# On utilise st.dataframe au lieu de st.data_editor pour un affichage pur
+selected_row = st.dataframe(display_df, use_container_width=True)
+
+# On ajoute un sélecteur par index (plus stable)
+selected_index = st.selectbox("Choisir une ligne à centrer :", options=display_df.index, format_func=lambda i: f"{display_df.loc[i, 'adresse_nom_voie']} - {display_df.loc[i, 'commune']}" if 'adresse_nom_voie' in display_df.columns else f"Ligne {i+1}")
+
+if st.button("📍 Recentrer sur cette adresse"):
+    row = display_df.loc[selected_index]
+    if "latitude" in row and "longitude" in row:
         st.session_state.selected_marker = (row["latitude"], row["longitude"])
         st.experimental_rerun()
 
