@@ -50,13 +50,6 @@ def parse_leboncoin_html(html_text):
 
 # --- Pagination ADEME avec barre de progression ---
 def fetch_ademe_all(q="", page_mode_all=True, max_pages=None, page_size=300):
-    """
-    Récupère toutes les pages ADEME avec suivi progressif.
-    q : string recherche (ville, code postal...)
-    page_mode_all : bool, si True récupère toutes les pages
-    max_pages : nombre max de pages à récupérer si page_mode_all=False
-    page_size : nombre de résultats par page (max 300)
-    """
     base = "https://data.ademe.fr/data-fair/api/v1/datasets/dpe-france/lines"
     all_rows = []
     page = 1
@@ -78,9 +71,7 @@ def fetch_ademe_all(q="", page_mode_all=True, max_pages=None, page_size=300):
             if not rows:
                 break
             all_rows.extend(rows)
-            # Mise à jour de la barre de progression
             if page_mode_all:
-                # On met à jour arbitrairement toutes les 10 pages
                 if page % 10 == 0:
                     progress_bar.progress(min(page*5, 100))
             else:
