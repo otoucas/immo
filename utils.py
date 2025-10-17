@@ -8,7 +8,12 @@ def geocode_city(ville):
     try:
         url = "https://nominatim.openstreetmap.org/search"
         headers = {"User-Agent": "dpe-search-app/1.0 (+contact@example.com)"}
-        resp = requests.get(url, params={"q": ville, "format": "json", "limit": 1"}, headers=headers, timeout=10)
+        resp = requests.get(
+            url,
+            params={"q": ville, "format": "json", "limit": 1},
+            headers=headers,
+            timeout=10
+        )
         if resp.ok and resp.json():
             d = resp.json()[0]
             return float(d["lat"]), float(d["lon"])
