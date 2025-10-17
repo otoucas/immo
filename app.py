@@ -165,10 +165,6 @@ if st.sidebar.button("🔎 Lancer la recherche"):
         df = df[df["dist"] <= rayon_km]
 
     # --- Remplir colonnes manquantes pour tableau ---
-    display_cols = ["adresse_numero_voie","adresse_nom_voie","code_postal","commune",
-                    "classe_consommation_energie","date_consommation_energie",
-                    "classe_estimation_ges","date_estimation_ges",
-                    "surface_habitable_logement","nombre_batiments","latitude","longitude"]
     for col in display_cols:
         if col not in df.columns:
             df[col] = "?"
