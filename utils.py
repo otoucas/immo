@@ -1,91 +1,114 @@
 import requests
+import pandas as pd
+import json
 import re
-from math import radians, cos, sin, sqrt, atan2
-import streamlit as st
+import os
+from math import radians, sin, cos, sqrt, atan2
+from bs4 import BeautifulSoup
 
-# --- Géocodage ---
-def geocode_city(ville):
+# ------------------------------------------------------------
+# GESTION DES FILTRES (sauvegarde / chargement)
+# ------------------------------------------------------------
+FILTER_FILE = "saved_filters.json"
+
+def save_filters(filters: dict):
     try:
-        url = "https://nominatim.openstreetmap.org/search"
-        headers = {"User-Agent": "dpe-search-app/1.0 (+contact@example.com)"}
-        resp = requests.get(
-            url,
-            params={"q": ville, "format": "json", "limit": 1},
-            headers=headers,
-            timeout=10
-        )
-        if resp.ok and resp.json():
-            d = resp.json()[0]
-            return float(d["lat"]), float(d["lon"])
-    except Exception:
-        pass
-    return None, None
+        with open(FILTER_FILE, "w", encoding="utf-8") as f:
+            json.dump(filters, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"Erreur de sauvegarde des filtres : {e}")
 
-# --- Distance ---
-def distance_km(lat1, lon1, lat2, lon2):
-    R = 6371.0
-    d_lat = radians(lat2 - lat1)
-    d_lon = radians(lon2 - lon1)
-    a = sin(d_lat / 2) ** 2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(d_lon / 2) ** 2
-    c = 2 * atan2(sqrt(a), sqrt(1 - a))
-    return R * c
-
-# --- Extraction LeBonCoin ---
-def parse_leboncoin_html(html_text):
-    infos = {}
-    try:
-        surface = re.search(r"(\d+)\s?m²", html_text)
-        ville = re.search(r"(?i)(?:à|sur)\s+([A-Za-zÀ-ÖØ-öø-ÿ\- ]+)\s?(?:\(|,|<|$)", html_text)
-        codep = re.search(r"\b(\d{5})\b", html_text)
-        dpe = re.search(r"[dD][pP][eE]\s*[:\-]?\s*([A-G])", html_text)
-        ges = re.search(r"[gG][eE][sS]\s*[:\-]?\s*([A-G])", html_text)
-        if surface:
-            infos["surface_min"], infos["surface_max"] = int(surface.group(1)) - 10, int(surface.group(1)) + 10
-        if ville:
-            infos["ville"] = ville.group(1).strip().title()
-        if codep:
-            infos["code_postal"] = codep.group(1)
-        if dpe:
-            infos["classe_energie"] = [dpe.group(1).upper()]
-        if ges:
-            infos["classe_ges"] = [ges.group(1).upper()]
-    except Exception:
-        pass
-    return infos
-
-# --- Pagination ADEME avec barre de progression ---
-def fetch_ademe_all(q="", page_mode_all=True, max_pages=None, page_size=300):
-    base = "https://data.ademe.fr/data-fair/api/v1/datasets/dpe-france/lines"
-    all_rows = []
-    page = 1
-    if page_mode_all:
-        st.info("⏳ Récupération de toutes les pages ADEME (cela peut prendre quelques minutes)…")
-    else:
-        st.info(f"⏳ Récupération des {max_pages} premières pages ADEME…")
-    
-    progress_bar = st.progress(0)
-    
-    while True:
-        params = {"q": q, "size": page_size, "page": page}
+def load_filters() -> dict:
+    if os.path.exists(FILTER_FILE):
         try:
-            resp = requests.get(base, params=params, timeout=15)
-            if not resp.ok:
-                break
-            data = resp.json()
-            rows = data.get("results", [])
-            if not rows:
-                break
-            all_rows.extend(rows)
-            if page_mode_all:
-                if page % 10 == 0:
-                    progress_bar.progress(min(page*5, 100))
-            else:
-                progress_bar.progress(int(page/max_pages*100))
-            page += 1
-            if not page_mode_all and max_pages and page > max_pages:
-                break
-        except Exception as e:
-            st.warning(f"Erreur récupération page {page}: {e}")
+            with open(FILTER_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
+
+# ------------------------------------------------------------
+# OUTILS GÉOGRAPHIQUES
+# ------------------------------------------------------------
+def geocode_city(ville):
+    """Retourne (lat, lon) pour une ville via Nominatim."""
+    try:
+        url = f"https://nominatim.openstreetmap.org/search?q={ville}&format=json&limit=1"
+        r = requests.get(url, headers={"User-Agent": "immo-app"})
+        r.raise_for_status()
+        data = r.json()
+        if data:
+            return float(data[0]["lat"]), float(data[0]["lon"])
+    except Exception:
+        return None
+
+def distance_km(lat1, lon1, lat2, lon2):
+    """Calcule la distance (km) entre deux points."""
+    R = 6371
+    dlat = radians(lat2 - lat1)
+    dlon = radians(lon2 - lon1)
+    a = sin(dlat/2)**2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlon/2)**2
+    return R * 2 * atan2(sqrt(a), sqrt(1-a))
+
+# ------------------------------------------------------------
+# EXTRACTION LEBONCOIN
+# ------------------------------------------------------------
+def parse_leboncoin_html(url):
+    """Extrait des infos de base depuis une annonce LeBonCoin."""
+    r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"})
+    r.raise_for_status()
+    soup = BeautifulSoup(r.text, "html.parser")
+
+    data = {}
+    # Titre
+    title = soup.find("h1")
+    if title:
+        data["titre"] = title.text.strip()
+
+    # Prix
+    price_tag = soup.find(string=re.compile("€"))
+    if price_tag:
+        data["prix"] = re.sub(r"[^\d]", "", price_tag)
+
+    # Surface
+    surf = soup.find(string=re.compile("m²"))
+    if surf:
+        try:
+            data["surface"] = int(re.search(r"(\d+)\s*m²", surf).group(1))
+        except Exception:
+            pass
+
+    # Ville / CP
+    loc = soup.find(string=re.compile(r"\d{5}"))
+    if loc:
+        data["code_postal"] = re.search(r"(\d{5})", loc).group(1)
+        data["ville"] = loc.split(data["code_postal"])[0].strip(" ,")
+
+    return data
+
+# ------------------------------------------------------------
+# RECHERCHE ADEME
+# ------------------------------------------------------------
+def fetch_ademe_all(q, pages=3):
+    """Récupère les données Open Data ADEME (diagnostics DPE)."""
+    url = "https://data.ademe.fr/data-fair/api/v1/datasets/dpe-france/records"
+    all_rows = []
+    for page in range(1, pages + 1):
+        params = {
+            "q": q,
+            "size": 100,
+            "page": page,
+        }
+        r = requests.get(url, params=params)
+        if r.status_code != 200:
             break
-    progress_bar.progress(100)
-    return all_rows
+        js = r.json()
+        hits = js.get("results", [])
+        if not hits:
+            break
+        for h in hits:
+            fields = h.get("fields", {})
+            all_rows.append(fields)
+    if all_rows:
+        return pd.DataFrame(all_rows)
+    return pd.DataFrame()
