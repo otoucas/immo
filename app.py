@@ -5,12 +5,12 @@ import folium
 from folium.plugins import MarkerCluster
 from streamlit_folium import st_folium
 from utils import (
-    geocode_city,
-    fetch_ademe_all,
-    distance_km,
     save_filter,
     load_filters,
     delete_saved_filter,
+    geocode_city,
+    distance_km,
+    fetch_ademe_all,
     get_price_history,
 )
 import math
