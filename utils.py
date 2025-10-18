@@ -7,12 +7,12 @@ from math import radians, sin, cos, sqrt, atan2
 from typing import Optional, Tuple, List, Dict, Any
 
 # -------------------------
-# Fichier de sauvegarde des filtres
+# FICHIER DES FILTRES
 # -------------------------
 FILTER_FILE = "saved_filters.json"
 
 def save_filter(name: str, filters: dict):
-    """Sauvegarde (ou remplace) un jeu de filtres sous le nom 'name'."""
+    """Sauvegarde ou remplace un jeu de filtres."""
     saved = {}
     if os.path.exists(FILTER_FILE):
         try:
@@ -25,7 +25,7 @@ def save_filter(name: str, filters: dict):
         json.dump(saved, f, ensure_ascii=False, indent=2)
 
 def load_filters() -> Dict[str, dict]:
-    """Retourne le dict de jeux de filtres sauvegardés."""
+    """Retourne tous les jeux de filtres sauvegardés."""
     if os.path.exists(FILTER_FILE):
         try:
             with open(FILTER_FILE, "r", encoding="utf-8") as f:
@@ -34,8 +34,8 @@ def load_filters() -> Dict[str, dict]:
             return {}
     return {}
 
-def delete_saved_filter(name: str):
-    """Supprime un filtre enregistré par son nom."""
+def delete_filter(name: str):
+    """Supprime un jeu de filtres par nom."""
     if not os.path.exists(FILTER_FILE):
         return
     try:
@@ -49,13 +49,14 @@ def delete_saved_filter(name: str):
             json.dump(saved, f, ensure_ascii=False, indent=2)
 
 # -------------------------
-# Géocodage / Distance
+# GÉOCODAGE / DISTANCE
 # -------------------------
 def geocode_city(city: str) -> Optional[Tuple[float, float]]:
-    """Retourne (lat, lon) pour une ville via Nominatim (OpenStreetMap)."""
+    """Géocode une ville par Nominatim. Retourne (lat, lon) ou None."""
     try:
         url = "https://nominatim.openstreetmap.org/search"
-        resp = requests.get(url, params={"q": city, "format": "json", "limit": 1}, headers={"User-Agent": "immo-app"}, timeout=10)
+        resp = requests.get(url, params={"q": city, "format": "json", "limit": 1},
+                            headers={"User-Agent": "dpe-explorer"}, timeout=10)
         resp.raise_for_status()
         js = resp.json()
         if js:
@@ -64,7 +65,7 @@ def geocode_city(city: str) -> Optional[Tuple[float, float]]:
         return None
 
 def distance_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-    """Distance Haversine (km) entre deux points."""
+    """Distance Haversine en kilomètres."""
     R = 6371.0
     dlat = radians(lat2 - lat1)
     dlon = radians(lon2 - lon1)
@@ -73,10 +74,16 @@ def distance_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return R * c
 
 # -------------------------
-# Récupération ADEME (toutes les pages ou limité)
+# RÉCUPÉRATION ADEME (PAGINATION TOTALE POSSIBLE)
 # -------------------------
 def fetch_ademe_all(q: str = "", pages: Optional[int] = None, page_size: int = 300) -> pd.DataFrame:
-    """Récupère les données du dataset DPE ADEME (toutes les pages ou limitées)."""
+    """
+    Récupère les enregistrements ADEME (dataset dpe-france).
+    - q: terme de recherche (ville / code postal / texte)
+    - pages: None => récupérer jusqu'à épuisement ; sinon nombre de pages max
+    - page_size: items par page (300 est raisonnable)
+    Retourne DataFrame (vide si rien).
+    """
     base = "https://data.ademe.fr/data-fair/api/v1/datasets/dpe-france/records"
     all_rows = []
     page = 1
@@ -89,28 +96,38 @@ def fetch_ademe_all(q: str = "", pages: Optional[int] = None, page_size: int = 3
             js = r.json()
         except Exception:
             break
+
         hits = js.get("results") or js.get("records") or js.get("data") or []
         if not hits:
             break
+
         for h in hits:
             if isinstance(h, dict) and "fields" in h and isinstance(h["fields"], dict):
                 all_rows.append(h["fields"])
             elif isinstance(h, dict):
+                # some endpoints may directly return fields dict
                 all_rows.append(h)
         if pages and page >= pages:
             break
         page += 1
-        if len(hits) < page_size:
+        if isinstance(hits, list) and len(hits) < page_size:
+            # likely last page
             break
+
     if not all_rows:
         return pd.DataFrame()
-    return pd.DataFrame(all_rows)
+    df = pd.DataFrame(all_rows)
+    return df
 
 # -------------------------
-# Historique des prix (DVF)
+# HISTORIQUE DES PRIX (DVF) - tentative par API publique
 # -------------------------
 def get_price_history(lat: float, lon: float, radius_m: int = 100) -> List[Dict[str, Any]]:
-    """Récupère l'historique des ventes DVF proches d’un point."""
+    """
+    Tente de récupérer les transactions DVF autour d'un point.
+    Utilise api.cquest.org/dvf ou équivalent micro-API (best-effort).
+    Retourne liste de transactions (possiblement vide).
+    """
     try:
         url = "http://api.cquest.org/dvf"
         params = {"lat": lat, "lon": lon, "dist": radius_m}
@@ -122,10 +139,10 @@ def get_price_history(lat: float, lon: float, radius_m: int = 100) -> List[Dict[
         if isinstance(records, list):
             for rec in records:
                 out.append({
-                    "date_mutation": rec.get("date_mutation"),
-                    "valeur_fonciere": rec.get("valeur_fonciere"),
+                    "date_mutation": rec.get("date_mutation") or rec.get("date"),
+                    "valeur_fonciere": rec.get("valeur_fonciere") or rec.get("valeur"),
                     "type_local": rec.get("type_local"),
-                    "surface_relle_bati": rec.get("surface_relle_bati"),
+                    "surface_relle_bati": rec.get("surface_relle_bati") or rec.get("surface"),
                     "adresse": rec.get("adresse") or rec.get("adresse_rep"),
                 })
         return out
