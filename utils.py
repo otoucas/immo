@@ -76,12 +76,7 @@ def distance_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 # Récupération ADEME (toutes les pages ou limité)
 # -------------------------
 def fetch_ademe_all(q: str = "", pages: Optional[int] = None, page_size: int = 300) -> pd.DataFrame:
-    """
-    Interroge l'API ADEME (dataset dpe-france). 
-    - q: chaîne de recherche (ville, cp, ...)
-    - pages: None => récupérer jusqu'à épuisement ; sinon nombre de pages max
-    - page_size: taille page (max 300 par requête si l'API supporte)
-    """
+    """Récupère les données du dataset DPE ADEME (toutes les pages ou limitées)."""
     base = "https://data.ademe.fr/data-fair/api/v1/datasets/dpe-france/records"
     all_rows = []
     page = 1
@@ -94,72 +89,45 @@ def fetch_ademe_all(q: str = "", pages: Optional[int] = None, page_size: int = 3
             js = r.json()
         except Exception:
             break
-
-        # l'API peut retourner sous "results" ou "records" selon endpoint
         hits = js.get("results") or js.get("records") or js.get("data") or []
         if not hits:
             break
-
         for h in hits:
-            # certains endpoints retournent {"fields": {...}}
             if isinstance(h, dict) and "fields" in h and isinstance(h["fields"], dict):
                 all_rows.append(h["fields"])
             elif isinstance(h, dict):
                 all_rows.append(h)
-            else:
-                # skip unknown structure
-                pass
-
-        # stop if requested number of pages reached
         if pages and page >= pages:
             break
         page += 1
-
-        # if returned less than a full page, likely finished
-        if isinstance(hits, list) and len(hits) < page_size:
+        if len(hits) < page_size:
             break
-
     if not all_rows:
         return pd.DataFrame()
-    df = pd.DataFrame(all_rows)
-    # Normalize common fields: try to find lat/lon keys if nested
-    # Keep as-is; calling code will coerce types and fill missing columns
-    return df
+    return pd.DataFrame(all_rows)
 
 # -------------------------
-# Historique des prix (DVF) — tentative via micro-API cquest
+# Historique des prix (DVF)
 # -------------------------
 def get_price_history(lat: float, lon: float, radius_m: int = 100) -> List[Dict[str, Any]]:
-    """
-    Tente de récupérer l'historique des transactions DVF proches d'un point.
-    Utilise l'API publique cquest (micro-API) si disponible :
-      http://api.cquest.org/dvf?lat=...&lon=...&dist=...
-    Retourne une liste de transactions {date_mutation, valeur_fonciere, type_local, surface_relle_bati, adresse (si dispo)}.
-    Si l'API n'est pas disponible, retourne [].
-    """
+    """Récupère l'historique des ventes DVF proches d’un point."""
     try:
         url = "http://api.cquest.org/dvf"
         params = {"lat": lat, "lon": lon, "dist": radius_m}
         r = requests.get(url, params=params, timeout=15)
         r.raise_for_status()
         js = r.json()
-        # plusieurs micro-apis renvoient 'resultats' ou 'records' ou direct list
         records = js.get("resultats") or js.get("records") or js.get("rows") or js.get("data") or js.get("results") or js
-        # Convert to list of dicts if necessary
         out = []
         if isinstance(records, list):
             for rec in records:
-                # mapping best-effort
-                try:
-                    out.append({
-                        "date_mutation": rec.get("date_mutation") or rec.get("date_mut"),
-                        "valeur_fonciere": rec.get("valeur_fonciere") or rec.get("valeur"),
-                        "type_local": rec.get("type_local"),
-                        "surface_relle_bati": rec.get("surface_relle_bati") or rec.get("surface"),
-                        "adresse": rec.get("adresse") or rec.get("adresse_rep"),
-                    })
-                except Exception:
-                    continue
+                out.append({
+                    "date_mutation": rec.get("date_mutation"),
+                    "valeur_fonciere": rec.get("valeur_fonciere"),
+                    "type_local": rec.get("type_local"),
+                    "surface_relle_bati": rec.get("surface_relle_bati"),
+                    "adresse": rec.get("adresse") or rec.get("adresse_rep"),
+                })
         return out
     except Exception:
         return []
