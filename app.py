@@ -86,12 +86,25 @@ if launch:
             if cp:
                 code_postaux.append(cp)
 
-    df = fetch_ademe_all(code_postaux)
+df = fetch_ademe_all(code_postaux)
+
+# --- Sécurisation : création des colonnes manquantes ---
+for col in ["classe_consommation_energie", "classe_estimation_ges", "surface_habitable_logement"]:
+    if col not in df.columns:
+        df[col] = None
+
+# --- Application des filtres seulement si les colonnes existent ---
+if "classe_consommation_energie" in df.columns:
     df = df[df["classe_consommation_energie"].isin(dpe_selected)]
+
+if "classe_estimation_ges" in df.columns:
     df = df[df["classe_estimation_ges"].isin(ges_selected)]
-    df = df[(df["surface_habitable_logement"] >= surface_min) & (df["surface_habitable_logement"] <= surface_max)]
-    if radius > 0 and bary:
-        df = filter_ademe_data_by_radius(df, bary[0], bary[1], radius)
+
+if "surface_habitable_logement" in df.columns:
+    df = df[
+        (df["surface_habitable_logement"] >= surface_min)
+        & (df["surface_habitable_logement"] <= surface_max)
+    ]
 
     # Calque contours postaux
     if show_postal_layer and code_postaux:
