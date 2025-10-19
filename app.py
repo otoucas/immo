@@ -125,7 +125,7 @@ if "surface_habitable_logement" in df.columns:
     if df.empty:
         st.warning("Aucun résultat trouvé.")
     else:
-    st.success(f"{len(df)} enregistrements ADEME chargés.")
+        st.success(f"{len(df)} enregistrements ADEME chargés.")
     else:
         marker_cluster = MarkerCluster().add_to(m)
         for _, row in df.iterrows():
