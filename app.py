@@ -86,6 +86,23 @@ if launch:
             if cp:
                 code_postaux.append(cp)
 
+# --- Préparation des codes postaux à partir des villes ou du repère ---
+code_postaux = []
+if villes:
+    for v in villes:
+        g = geocode_city(v)
+        if g and "code_postal" in g:
+            code_postaux.append(str(g["code_postal"]))
+elif repere_coords:
+    # Si un repère est défini, on cherche les CP dans le rayon
+    rayon_km = float(st.session_state.get("rayon_km", 0))
+    code_postaux = get_postal_codes_in_radius(repere_coords, rayon_km)
+
+# Évite les doublons
+code_postaux = list(set(code_postaux))
+if not code_postaux:
+    st.warning("Aucun code postal n’a pu être déterminé pour la recherche.")
+
 df = fetch_ademe_all(code_postaux)
 
 # --- Sécurisation : création des colonnes manquantes ---
