@@ -35,6 +35,15 @@ ges_selected = st.sidebar.multiselect("Classe GES", dpe_classes, default=dpe_cla
 map_type = st.sidebar.selectbox("Type de carte", ["Classique", "Satellite"])
 show_postal_layer = st.sidebar.checkbox("Afficher les contours des codes postaux", value=True)
 
+# --- Champ de saisie pour les villes ---
+villes_input = st.sidebar.text_input(
+    "Villes (séparées par des virgules)",
+    placeholder="Ex : Lyon, Grenoble, Annecy"
+)
+
+# On nettoie la saisie utilisateur
+villes = [v.strip() for v in villes_input.split(",") if v.strip()]
+
 # Gestion des filtres sauvegardés
 st.sidebar.markdown("#### Sauvegarde")
 saved_filters = load_filters()
@@ -65,6 +74,9 @@ launch = st.sidebar.button("🚀 Lancer la recherche")
 tiles = "OpenStreetMap" if map_type == "Classique" else "Esri.WorldImagery"
 m = folium.Map(location=[46.6, 2.4], zoom_start=6, tiles=tiles)
 
+# Si un repère est déjà défini sur la carte (ex: clic ou point central)
+repere_coords = st.session_state.get("repere_coords", None)
+
 if launch:
     cities = [c.strip() for c in cities_input.replace(",", ";").split(";") if c.strip()]
     if not cities:
@@ -94,10 +106,13 @@ if villes:
         if g and "code_postal" in g:
             code_postaux.append(str(g["code_postal"]))
 elif repere_coords:
-    # Si un repère est défini, on cherche les CP dans le rayon
     rayon_km = float(st.session_state.get("rayon_km", 0))
     code_postaux = get_postal_codes_in_radius(repere_coords, rayon_km)
 
+# Évite les doublons
+code_postaux = list(set(code_postaux))
+if not code_postaux:
+    st.warning("Aucun code postal n’a pu être déterminé pour la recherche.")
 # Évite les doublons
 code_postaux = list(set(code_postaux))
 if not code_postaux:
