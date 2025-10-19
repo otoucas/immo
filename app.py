@@ -126,7 +126,6 @@ if "surface_habitable_logement" in df.columns:
         st.warning("Aucun résultat trouvé.")
     else:
         st.success(f"{len(df)} enregistrements ADEME chargés.")
-    else:
         marker_cluster = MarkerCluster().add_to(m)
         for _, row in df.iterrows():
             dvf_html = ""
