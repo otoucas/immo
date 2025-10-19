@@ -1,163 +1,160 @@
 import streamlit as st
-import pandas as pd
 import folium
 from folium.plugins import MarkerCluster
 from streamlit_folium import st_folium
-from typing import List, Tuple, Optional
+import requests
+import pandas as pd
+
 from utils import (
-    geocode_city,
-    fetch_ademe_all,
     save_filter,
     load_filters,
     delete_saved_filter,
+    geocode_city,
     compute_barycenter,
-    export_csv,
+    filter_ademe_data_by_radius,
+    fetch_ademe_all,
+    get_dvf_data,
+    get_postalcode_geojson
 )
 
-st.set_page_config(page_title="Analyse DPE Interactive", layout="wide")
+st.set_page_config(page_title="Carte DPE + DVF", layout="wide")
 
-# -------------------------------------------------------
-# Sidebar - Filtres
-# -------------------------------------------------------
-st.sidebar.header("⚙️ Filtres de recherche")
+st.title("🏠 Carte interactive DPE / GES + DVF + Calques postaux")
 
-cities_input = st.sidebar.text_input("Villes (séparées par ;) :", "Lyon; Villeurbanne")
-rayon_km = st.sidebar.number_input("Rayon (km autour du repère)", min_value=1, max_value=100, value=10)
+# ----------------------------
+# Sidebar
+# ----------------------------
+st.sidebar.header("🎛️ Filtres")
+cities_input = st.sidebar.text_input("Villes (séparées par virgule)")
+radius = st.sidebar.number_input("Rayon (km)", min_value=0.0, step=1.0, value=0.0)
+surface_min = st.sidebar.number_input("Surface min (m²)", min_value=0.0, step=5.0, value=0.0)
+surface_max = st.sidebar.number_input("Surface max (m²)", min_value=0.0, step=5.0, value=500.0)
+dpe_classes = ["A", "B", "C", "D", "E", "F", "G"]
+dpe_selected = st.sidebar.multiselect("Classe DPE", dpe_classes, default=dpe_classes)
+ges_selected = st.sidebar.multiselect("Classe GES", dpe_classes, default=dpe_classes)
+map_type = st.sidebar.selectbox("Type de carte", ["Classique", "Satellite"])
+show_postal_layer = st.sidebar.checkbox("Afficher les contours des codes postaux", value=True)
 
-surface_min = st.sidebar.number_input("Surface habitable min (m²)", 0)
-surface_max = st.sidebar.number_input("Surface habitable max (m²)", 1000)
+# Gestion des filtres sauvegardés
+st.sidebar.markdown("#### Sauvegarde")
+saved_filters = load_filters()
+selected_save = st.sidebar.selectbox("Filtres enregistrés", ["Aucun"] + list(saved_filters.keys()))
+if selected_save != "Aucun":
+    fdata = saved_filters[selected_save]
+    st.sidebar.json(fdata)
+    if st.sidebar.button("🗑️ Supprimer ce filtre"):
+        delete_saved_filter(selected_save)
+        st.sidebar.success(f"Filtre '{selected_save}' supprimé")
+new_filter_name = st.sidebar.text_input("Nom du filtre à enregistrer")
+if st.sidebar.button("💾 Enregistrer ce filtre"):
+    save_filter(new_filter_name, {
+        "cities": cities_input,
+        "radius": radius,
+        "surface_min": surface_min,
+        "surface_max": surface_max,
+        "dpe": dpe_selected,
+        "ges": ges_selected,
+    })
+    st.sidebar.success(f"Filtre '{new_filter_name}' enregistré !")
 
-dpe_sel = st.sidebar.multiselect("Classes DPE", list("ABCDEFG"))
-ges_sel = st.sidebar.multiselect("Classes GES", list("ABCDEFG"))
+launch = st.sidebar.button("🚀 Lancer la recherche")
 
-map_style = st.sidebar.radio("Type de carte", ["Classique", "Satellite"])
+# ----------------------------
+# Carte
+# ----------------------------
+tiles = "OpenStreetMap" if map_type == "Classique" else "Esri.WorldImagery"
+m = folium.Map(location=[46.6, 2.4], zoom_start=6, tiles=tiles)
 
-# Sauvegarde / chargement des filtres
-st.sidebar.subheader("💾 Sauvegardes de filtres")
-filter_name = st.sidebar.text_input("Nom de la sauvegarde")
+if launch:
+    cities = [c.strip() for c in cities_input.replace(",", ";").split(";") if c.strip()]
+    if not cities:
+        st.warning("Merci d’indiquer au moins une ville.")
+        st.stop()
 
-col1, col2, col3 = st.sidebar.columns(3)
-with col1:
-    if st.button("💾 Sauver"):
-        save_filter(filter_name, {
-            "cities": cities_input,
-            "rayon_km": rayon_km,
-            "surface_min": surface_min,
-            "surface_max": surface_max,
-            "dpe_sel": dpe_sel,
-            "ges_sel": ges_sel,
-        })
-with col2:
-    if st.button("📂 Charger"):
-        data = load_filters()
-        if filter_name in data:
-            f = data[filter_name]
-            st.session_state.update(f)
-            st.sidebar.success(f"Filtres '{filter_name}' chargés.")
-with col3:
-    if st.button("🗑️ Supprimer"):
-        delete_saved_filter(filter_name)
+    bary = compute_barycenter(cities)
+    if bary:
+        m.location = bary
+        m.zoom_start = 12
 
-saved_filters = list(load_filters().keys())
-if saved_filters:
-    st.sidebar.write("Sauvegardes disponibles :")
-    for name in saved_filters:
-        st.sidebar.markdown(f"- {name}")
+    # Codes postaux
+    code_postaux = []
+    for city in cities:
+        url = f"https://api-adresse.data.gouv.fr/search/?q={city}&type=municipality"
+        r = requests.get(url, timeout=10)
+        if r.status_code == 200 and r.json().get("features"):
+            cp = r.json()["features"][0]["properties"]["postcode"]
+            if cp:
+                code_postaux.append(cp)
 
-# -------------------------------------------------------
-# Traitement
-# -------------------------------------------------------
-cities_list = [c.strip() for c in cities_input.replace(",", ";").split(";") if c.strip()]
+    df = fetch_ademe_all(code_postaux)
+    df = df[df["classe_consommation_energie"].isin(dpe_selected)]
+    df = df[df["classe_estimation_ges"].isin(ges_selected)]
+    df = df[(df["surface_habitable_logement"] >= surface_min) & (df["surface_habitable_logement"] <= surface_max)]
+    if radius > 0 and bary:
+        df = filter_ademe_data_by_radius(df, bary[0], bary[1], radius)
 
-if st.sidebar.button("🔍 Lancer la recherche"):
-    st.session_state["search_launched"] = True
-else:
-    st.session_state.setdefault("search_launched", False)
+    # Calque contours postaux
+    if show_postal_layer and code_postaux:
+        geojson_data = get_postalcode_geojson(code_postaux)
+        if geojson_data:
+            folium.GeoJson(
+                geojson_data,
+                name="Contours postaux",
+                style_function=lambda x: {
+                    "fillColor": "#00000000",
+                    "color": "#ff7800",
+                    "weight": 2,
+                    "opacity": 0.7
+                },
+                tooltip=folium.GeoJsonTooltip(fields=["nom", "codePostal"], aliases=["Commune", "Code postal"])
+            ).add_to(m)
 
-# Affichage principal
-st.title("🏠 Carte interactive des DPE")
-st.markdown("Les résultats s’affichent ci-dessous dès qu’une recherche est effectuée.")
+    if df.empty:
+        st.warning("Aucun résultat trouvé.")
+    else:
+        marker_cluster = MarkerCluster().add_to(m)
+        for _, row in df.iterrows():
+            dvf_html = ""
+            dvf_data = get_dvf_data(row.get("code_postal", ""), voie=row.get("adresse_nom_voie", ""))
+            if dvf_data:
+                dvf_html = "<hr><b>Historique DVF :</b><br>"
+                for v in dvf_data:
+                    prix_m2 = (
+                        round(v["valeur_fonciere"] / v["surface"], 0)
+                        if v["surface"] and v["valeur_fonciere"]
+                        else "?"
+                    )
+                    dvf_html += f"{v['date']} — {v['type']} : {prix_m2} €/m²<br>"
+            else:
+                dvf_html = "<i>Pas de ventes DVF récentes</i>"
 
-# Carte vide si pas encore de recherche
-if not st.session_state["search_launched"]:
-    st.warning("➡️ Lancez une recherche depuis le panneau latéral pour afficher les résultats.")
-    m = folium.Map(location=[46.6, 2.4], zoom_start=6)
-    st_folium(m, height=500)
-    st.stop()
+            popup = f"""
+            <b>{row.get('adresse_nom_voie','?')}</b><br>
+            DPE: {row.get('classe_consommation_energie','?')}<br>
+            GES: {row.get('classe_estimation_ges','?')}<br>
+            Surface: {row.get('surface_habitable_logement','?')} m²<br>
+            {dvf_html}
+            """
+            folium.Marker(
+                location=[row["latitude"], row["longitude"]],
+                popup=popup,
+                icon=folium.Icon(color="blue", icon="home", prefix="fa")
+            ).add_to(marker_cluster)
 
-# -------------------------------------------------------
-# Chargement des données ADEME
-# -------------------------------------------------------
-with st.spinner("Chargement des données ADEME..."):
-    df = fetch_ademe_all(cities_list)
+    folium.LayerControl().add_to(m)
 
-if df.empty:
-    st.error("Aucun résultat trouvé pour ces critères.")
-    st.stop()
+st_folium(m, width=1200, height=700)
 
-# Application des filtres
-if surface_min or surface_max:
-    df = df[(df["surface_habitable_logement"] >= surface_min) &
-            (df["surface_habitable_logement"] <= surface_max)]
-
-if dpe_sel:
-    df = df[df["classe_consommation_energie"].isin(dpe_sel)]
-if ges_sel:
-    df = df[df["classe_estimation_ges"].isin(ges_sel)]
-
-if df.empty:
-    st.warning("Aucun bien ne correspond aux filtres appliqués.")
-    st.stop()
-
-# -------------------------------------------------------
-# Carte interactive
-# -------------------------------------------------------
-center = compute_barycenter(cities_list)
-tiles = "OpenStreetMap" if map_style == "Classique" else "Esri.WorldImagery"
-m = folium.Map(location=center, zoom_start=12, tiles=tiles)
-
-marker_cluster = MarkerCluster().add_to(m)
-
-for _, r in df.iterrows():
-    popup_html = f"""
-    <b>Adresse :</b> {r.get('adresse_nom_voie', '?')}<br>
-    <b>DPE :</b> {r.get('classe_consommation_energie', '?')}<br>
-    <b>GES :</b> {r.get('classe_estimation_ges', '?')}<br>
-    <b>Date DPE :</b> {r.get('date_realisation_dpe', '?')}<br>
-    <b>Surface :</b> {r.get('surface_habitable_logement', '?')} m²<br>
-    <b>Nombre de bâtiments :</b> {r.get('nombre_batiment', '?')}
-    """
-    folium.Marker(
-        location=[r["latitude"], r["longitude"]],
-        popup=popup_html,
-        icon=folium.Icon(color="blue", icon="home", prefix="fa")
-    ).add_to(marker_cluster)
-
-st_data = st_folium(m, height=550, width=1000)
-
-# -------------------------------------------------------
-# Tableau des résultats
-# -------------------------------------------------------
-st.subheader("📋 Résultats détaillés")
-display_cols = [
-    "adresse_nom_voie",
-    "surface_habitable_logement",
-    "nombre_batiment",
-    "classe_consommation_energie",
-    "classe_estimation_ges",
-    "date_realisation_dpe",
-]
-display_df = df[display_cols].rename(columns={
-    "adresse_nom_voie": "Adresse",
-    "surface_habitable_logement": "Surface (m²)",
-    "nombre_batiment": "Bâtiments",
-    "classe_consommation_energie": "DPE",
-    "classe_estimation_ges": "GES",
-    "date_realisation_dpe": "Date DPE",
-})
-selected = st.dataframe(display_df, use_container_width=True)
-
-# Export CSV
-if st.button("💾 Exporter les résultats en CSV"):
-    export_csv(display_df)
-    st.success("Fichier CSV exporté avec succès !")
+# ----------------------------
+# Tableau de données
+# ----------------------------
+if launch and not df.empty:
+    st.subheader("📋 Résultats détaillés")
+    display_cols = [
+        "adresse_nom_voie", "code_postal", "commune",
+        "surface_habitable_logement", "nombre_batiments",
+        "classe_consommation_energie", "classe_estimation_ges"
+    ]
+    st.dataframe(df[display_cols])
+    csv = df[display_cols].to_csv(index=False)
+    st.download_button("⬇️ Export CSV", csv, "resultats_dpe.csv", "text/csv")
