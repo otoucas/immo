@@ -77,6 +77,27 @@ def filter_ademe_data_by_radius(df, lat, lon, radius_km):
     )
     return df[df["distance_km"] <= radius_km]
 
+def get_postal_codes_in_radius(center_coords, rayon_km):
+    """
+    Retourne les codes postaux dans un rayon autour d’un point donné.
+    (approximation simple via bounding box + API adresse.gouv.fr)
+    """
+    try:
+        lat, lon = center_coords
+        delta = rayon_km / 111  # conversion km → degré approx.
+        bbox = f"{lon - delta},{lat - delta},{lon + delta},{lat + delta}"
+
+        url = "https://geo.api.gouv.fr/communes"
+        params = {"bbox": bbox, "format": "json"}
+        resp = requests.get(url, params=params, timeout=10)
+        if resp.status_code != 200:
+            return []
+
+        communes = resp.json()
+        return [str(c["codesPostaux"][0]) for c in communes if "codesPostaux" in c]
+    except Exception as e:
+        print("Erreur dans get_postal_codes_in_radius:", e)
+        return []
 
 # ----------------------------
 # API ADEME
