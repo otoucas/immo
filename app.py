@@ -121,6 +121,9 @@ if st.session_state.filters["cities"]:
             limit=settings.DEFAULT_RESULT_LIMIT,
         )
 
+st.write("Colonnes DPE :", list(dpe_df.columns))
+st.write("Nombre de lignes :", len(dpe_df))
+        
         # Application directe des filtres DPE / GES
         if st.session_state.filters["dpe_classes"]:
             dpe_df = dpe_df[dpe_df["dpe"].isin(st.session_state.filters["dpe_classes"])]
