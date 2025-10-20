@@ -38,8 +38,7 @@ st.sidebar.subheader("Villes d'intérêt")
 new_city = st.sidebar.text_input(
     "Ajouter une ville",
     value="",
-    placeholder="Ex: Lyon",
-)
+    placeholder="Ex: Belley",)
 
 col_add, col_clear = st.sidebar.columns([1, 1])
 with col_add:
