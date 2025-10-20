@@ -4,10 +4,9 @@ import math
 import requests
 from typing import List, Tuple, Optional
 import pandas as pd
-
+import numpy as np
 
 FILTERS_FILE = "saved_filters.json"
-
 
 # ----------------------------
 # Sauvegarde / chargement des filtres
@@ -59,23 +58,64 @@ def compute_barycenter(cities: List[str]) -> Optional[Tuple[float, float]]:
     lon_mean = sum(x[1] for x in coords) / len(coords)
     return lat_mean, lon_mean
 
-
 def haversine(lat1, lon1, lat2, lon2):
-    R = 6371
-    phi1, phi2 = math.radians(lat1), math.radians(lat2)
-    dphi = math.radians(lat2 - lat1)
-    dlambda = math.radians(lon2 - lon1)
-    a = (math.sin(dphi / 2) ** 2
-         + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2)
-    return 2 * R * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    """
+    Calcule la distance entre deux points GPS (en km)
+    à partir de leurs coordonnées latitude / longitude.
+
+    ⚙️ Gestion :
+    - Retourne NaN si l'une des coordonnées est manquante.
+    - Retourne 0 km si les points sont identiques.
+    """
+
+    # Vérification de la validité des coordonnées
+    if any(pd.isna([lat1, lon1, lat2, lon2])):
+        return float("nan")
+    try:
+        # Conversion degrés → radians
+        lat1, lon1, lat2, lon2 = map(math.radians, [float(lat1), float(lon1), float(lat2), float(lon2)])
+
+        # Formule haversine
+        dlat = lat2 - lat1
+        dlon = lon2 - lon1
+        a = math.sin(dlat / 2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2)**2
+        c = 2 * math.asin(math.sqrt(a))
+
+        # Rayon de la Terre (km)
+        R = 6371
+        return R * c
+    except Exception as e:
+        print(f"Erreur dans haversine(): {e}")
+        return float("nan")
+
 
 
 def filter_ademe_data_by_radius(df, lat, lon, radius_km):
+    """
+    Filtre les données ADEME pour ne garder que celles situées
+    dans un rayon donné (en km) autour d’un point.
+    """
     df = df.copy()
+
+    # Vérification des colonnes
+    if "latitude" not in df.columns or "longitude" not in df.columns:
+        return df.iloc[0:0]
+
+    # Conversion et nettoyage
+    df["latitude"] = pd.to_numeric(df["latitude"], errors="coerce")
+    df["longitude"] = pd.to_numeric(df["longitude"], errors="coerce")
+    df = df.dropna(subset=["latitude", "longitude"])
+
+    # Calcul de la distance ligne par ligne
     df["distance_km"] = df.apply(
-        lambda r: haversine(lat, lon, r["latitude"], r["longitude"]), axis=1
+        lambda r: haversine(lat, lon, r["latitude"], r["longitude"]),
+        axis=1
     )
-    return df[df["distance_km"] <= radius_km]
+
+    # Filtrage
+    df = df[df["distance_km"] <= radius_km].reset_index(drop=True)
+    return df
+
 
 def get_postal_codes_in_radius(center_coords, rayon_km):
     """
