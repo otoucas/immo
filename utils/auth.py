@@ -8,29 +8,22 @@ except Exception:
 
 
 def auth_gate() -> bool:
-    """
-    Affiche un écran d'accueil demandant un mot de passe.
-    Si "Se souvenir 30 jours" est coché, stocke un cookie chiffré côté navigateur.
-    Retourne True si l'accès est autorisé, sinon False.
-    """
-
-    APP_PASSWORD = st.secrets.get("APP_PASSWORD", "demo1234")
+    """Formulaire de mot de passe + cookie 30 jours."""
+    APP_PASSWORD = st.secrets.get("APP_PASSWORD", "open")  # 🔐 mot de passe par défaut corrigé
     COOKIE_KEY = st.secrets.get("COOKIE_KEY", "change-this-cookie-key")
     COOKIE_NAME = "dpe_auth_v1"
-    MAX_AGE_SEC = 30 * 24 * 3600  # 30 jours
+    MAX_AGE_SEC = 30 * 24 * 3600
 
     cookies_ok = EncryptedCookieManager is not None
     cookies = None
-
     if cookies_ok:
         cookies = EncryptedCookieManager(prefix="dpe_app", password=COOKIE_KEY)
-        # Attente explicite jusqu’à ce que les cookies soient prêts
         if not cookies.ready:
-            st.warning("⏳ Initialisation du gestionnaire de cookies... Veuillez patienter une seconde.")
+            st.warning("⏳ Initialisation du gestionnaire de cookies...")
             time.sleep(1)
             st.rerun()
 
-    # Vérifie si un cookie d'accès est déjà présent
+    # Cookie existant ?
     if cookies_ok and cookies:
         raw = cookies.get(COOKIE_NAME)
         if raw:
@@ -38,29 +31,34 @@ def auth_gate() -> bool:
                 data = json.loads(raw)
                 exp = float(data.get("exp", 0))
                 if exp > time.time():
-                    return True  # accès déjà autorisé
+                    st.session_state["_auth_ok"] = True
+                    return True
             except Exception:
-                pass  # cookie invalide, on continue
+                pass
 
-    # --- Formulaire de mot de passe ---
-    st.markdown("## 🔐 Accès protégé")
-    st.write("Cet outil nécessite un mot de passe pour continuer.")
-    with st.form("auth_form", clear_on_submit=False):
-        pwd = st.text_input("Mot de passe", type="password")
-        remember = st.checkbox("Se souvenir pendant 30 jours", value=True)
-        submitted = st.form_submit_button("Entrer")
+    # Si déjà connecté
+    if st.session_state.get("_auth_ok", False):
+        return True
 
-    if submitted:
-        if pwd == APP_PASSWORD:
-            # Création du cookie si demandé
-            if cookies_ok and remember and cookies:
-                payload = {"exp": time.time() + MAX_AGE_SEC}
-                cookies.set(COOKIE_NAME, json.dumps(payload), max_age=MAX_AGE_SEC)
-                cookies.save()
-            st.session_state["_auth_ok"] = True
-            st.success("Accès autorisé ✅")
-            st.rerun()
-        else:
-            st.error("Mot de passe incorrect.")
+    # Sinon, afficher le formulaire dans un container centré
+    with st.container():
+        st.markdown("### 🔐 Accès protégé")
+        st.write("Veuillez entrer le mot de passe pour accéder à l’outil.")
+        with st.form("auth_form", clear_on_submit=False):
+            pwd = st.text_input("Mot de passe", type="password")
+            remember = st.checkbox("Se souvenir pendant 30 jours", value=True)
+            submitted = st.form_submit_button("Entrer")
 
-    return bool(st.session_state.get("_auth_ok", False))
+        if submitted:
+            if pwd == APP_PASSWORD:
+                if cookies_ok and remember and cookies:
+                    payload = {"exp": time.time() + MAX_AGE_SEC}
+                    cookies.set(COOKIE_NAME, json.dumps(payload), max_age=MAX_AGE_SEC)
+                    cookies.save()
+                st.session_state["_auth_ok"] = True
+                st.success("Accès autorisé ✅")
+                st.rerun()
+            else:
+                st.error("Mot de passe incorrect.")
+
+    return False
