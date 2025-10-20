@@ -79,7 +79,7 @@ def fetch_dpe(
         print("⚠️ Erreur d’appel ADEME :", e)
         return pd.DataFrame()
 
-    if not rows:
+   if not rows:
         print("⚠️ Aucun résultat renvoyé par l’API ADEME.")
         return pd.DataFrame()
 
@@ -94,7 +94,6 @@ def fetch_dpe(
         ]
         return " ".join([p for p in parts if p]).replace("  ", " ").strip()
 
-    # Normalisation des enregistrements
     recs = []
     for row in rows:
         recs.append(
@@ -104,6 +103,7 @@ def fetch_dpe(
                 "insee": row.get("code_insee_commune_actualise"),
                 "lat": row.get("latitude"),
                 "lon": row.get("longitude"),
+                # harmonisation de noms de colonnes :
                 "dpe": row.get("classe_consommation_energie"),
                 "ges": row.get("classe_estimation_ges"),
                 "surface": row.get("surface_habitable_logement"),
@@ -112,6 +112,12 @@ def fetch_dpe(
         )
 
     df = pd.DataFrame.from_records(recs)
-    df = df.dropna(subset=["lat", "lon"]).reset_index(drop=True)
 
+    # 🔧 Harmonise et nettoie les colonnes pour l'app
+    expected_cols = ["full_address", "city", "lat", "lon", "dpe", "ges", "surface", "date_dpe"]
+    for col in expected_cols:
+        if col not in df.columns:
+            df[col] = None
+
+    df = df.dropna(subset=["lat", "lon"]).reset_index(drop=True)
     return df
