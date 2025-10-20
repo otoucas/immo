@@ -136,19 +136,18 @@ extent = compute_cities_extent(geo)
 
 # Fetch DPE data
 with st.spinner("Récupération des DPE depuis l'ADEME…"):
-dpe_df = fetch_dpe(
-    cities=geo,
-    min_surface=st.session_state.filters["min_surface"],
-    max_surface=st.session_state.filters["max_surface"],
-    limit=settings.DEFAULT_RESULT_LIMIT,
-)
+    dpe_df = fetch_dpe(
+        cities=geo,
+        min_surface=st.session_state.filters["min_surface"],
+        max_surface=st.session_state.filters["max_surface"],
+        limit=settings.DEFAULT_RESULT_LIMIT,
+    )
 
-# Application des filtres DPE / GES
-if st.session_state.filters["dpe_classes"]:
-    dpe_df = dpe_df[dpe_df["dpe"].isin(st.session_state.filters["dpe_classes"])]
-if st.session_state.filters["ges_classes"]:
-    dpe_df = dpe_df[dpe_df["ges"].isin(st.session_state.filters["ges_classes"])]
-
+    # Application des filtres DPE / GES
+    if st.session_state.filters["dpe_classes"]:
+        dpe_df = dpe_df[dpe_df["dpe"].isin(st.session_state.filters["dpe_classes"])]
+    if st.session_state.filters["ges_classes"]:
+        dpe_df = dpe_df[dpe_df["ges"].isin(st.session_state.filters["ges_classes"])]
 
 if dpe_df.empty:
     st.warning("Aucun résultat DPE ne correspond à vos critères.")
