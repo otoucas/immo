@@ -47,4 +47,6 @@ def auth_gate():
             st.success("Connexion réussie ✅")
             st.rerun()
         else:
-            st.err
+            st.error("Mot de passe incorrect.")
+
+    st.stop()
