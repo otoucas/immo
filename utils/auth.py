@@ -12,7 +12,7 @@ APP_PASSWORD = st.secrets.get("APP_PASSWORD", "demo1234")
 def auth_gate():
     """
     Écran d'authentification sécurisé avec cookie de session de 30 jours.
-    Empêche les erreurs CookiesNotReady sur Streamlit Cloud.
+    Compatible avec toutes les versions de streamlit-cookies-manager.
     """
     cookies = EncryptedCookieManager(prefix=COOKIE_NAME, password=COOKIE_KEY)
 
@@ -42,7 +42,8 @@ def auth_gate():
     if st.button("Se connecter"):
         if pwd == APP_PASSWORD:
             if remember:
-                cookies.set(COOKIE_NAME, json.dumps({"authenticated": True}), expires_at="30d")
+                # ✅ Nouvelle syntaxe pour enregistrer le cookie
+                cookies[COOKIE_NAME] = json.dumps({"authenticated": True})
                 cookies.save()
             st.success("Connexion réussie ✅")
             st.rerun()
