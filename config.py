@@ -4,7 +4,8 @@ from dataclasses import dataclass
 class Settings:
     # ADEME
     ADEME_API_BASE: str = "https://data.ademe.fr/data-fair/api/v1"
-    ADEME_DATASET_SLUG: str = "dpe-logements-existants-depuis-juillet-2021"
+    #ADEME_DATASET_SLUG: str = "dpe-logements-existants-depuis-juillet-2021"
+    ADEME_DATASET_SLUG: str = "dpe03existant"
 
     # DVF (à adapter selon votre source API ; fallback : réutilisation Data.gouv ou service interne)
     # Ex. si dataset exposé via Data Fair : "https://data.gouv.fr/data-fair/api/v1"
