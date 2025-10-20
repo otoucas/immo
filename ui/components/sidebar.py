@@ -12,11 +12,7 @@ def render_sidebar(state: AppState, svc: SearchService):
     # Ajout d'une ville / code postal
     st.sidebar.subheader("Zones géographiques")
     with st.sidebar.form("city_form", clear_on_submit=True):
-        col1, col2 = st.columns([2,1])
-        with col1:
-            q = st.text_input("Ville", placeholder="Ex: Lyon, Paris, ...")
-        with col2:
-            pc = st.text_input("CP", placeholder="69001")
+        q = st.text_input("Ville", placeholder="Ex: Lyon, Paris, ...")
         submitted = st.form_submit_button("Ajouter la ville")
         if submitted and q:
             matches = svc.geocode_city(q, postcode=pc or None)
