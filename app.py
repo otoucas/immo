@@ -90,20 +90,14 @@ if reset_btn:
     }
 
 # ---- MISE À JOUR DES FILTRES ----
-if apply_btn:
-    st.session_state.filters["min_surface"] = int(min_surf) if min_surf > 0 else None
-    st.session_state.filters["max_surface"] = int(max_surf) if max_surf > 0 else None
-    st.session_state.filters["dpe_classes"] = sel_dpe
-    st.session_state.filters["ges_classes"] = sel_ges
-
-# Parse cities
-parsed_cities = [c.strip() for c in cities_input.split(",") if c.strip()]
 
 # Apply filters to state when user clicks search
 if apply_btn:
     st.session_state.filters["cities"] = parsed_cities
     st.session_state.filters["min_surface"] = int(min_surf) if min_surf > 0 else None
     st.session_state.filters["max_surface"] = int(max_surf) if max_surf > 0 else None
+    st.session_state.filters["dpe_classes"] = sel_dpe
+    st.session_state.filters["ges_classes"] = sel_ges
 
 # Show active filters as removable chips (buttons)
 st.sidebar.subheader("Filtres actifs")
