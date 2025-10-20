@@ -38,34 +38,6 @@ def render_sidebar(state: AppState, svc: SearchService):
                 state.selected_cities.pop(i)
                 st.rerun()
 
-    # Codes postaux additionnels
-    st.sidebar.subheader("Codes postaux supplémentaires")
-    with st.sidebar.form("pc_form", clear_on_submit=True):
-        raw = st.text_input(
-            "Codes postaux (séparés par des virgules)",
-            key="_tmp_pcs",
-            placeholder="69001,69002"
-        )
-        submitted_pc = st.form_submit_button("Ajouter codes postaux")
-        if submitted_pc:
-            pcs = [p.strip() for p in raw.split(",") if p.strip()]
-            for p in pcs:
-                if p not in state.extra_postcodes:
-                    state.extra_postcodes.append(p)
-            st.rerun()
-
-
-    if state.extra_postcodes:
-        st.sidebar.caption("Codes postaux ajoutés :")
-        for i, p in enumerate(state.extra_postcodes):
-            cols = st.sidebar.columns([4,1])
-            cols[0].markdown(f"`{p}`")
-            if cols[1].button("✕", key=f"del_pc_{i}"):
-                state.extra_postcodes.pop(i)
-                st.rerun()
-
-    st.sidebar.divider()
-
     # Filtres surface
     st.sidebar.subheader("Surface habitable (m²)")
     smin, smax = st.sidebar.slider("Plage", min_value=0, max_value=1000, value=(state.surface_min, state.surface_max), step=5)
@@ -87,11 +59,11 @@ def render_sidebar(state: AppState, svc: SearchService):
     state.ges_filters = selected_ges
 
     st.sidebar.divider()
+    
     # Bouton de lancement explicite
     if st.sidebar.button("🚀 Lancer la recherche", use_container_width=True):
         state.results = svc.search_ademe(
             state.selected_cities,
-            state.extra_postcodes,
             state.dpe_filters,
             state.ges_filters,
             state.surface_min,
