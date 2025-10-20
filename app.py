@@ -107,6 +107,9 @@ extent = empty_extent
 dpe_df = empty_df.copy()
 
 # ---- Lancer la recherche seulement si villes présentes ----
+st.write("Colonnes DPE :", list(dpe_df.columns))
+st.write("Nombre de lignes :", len(dpe_df))
+
 if st.session_state.filters["cities"]:
     with st.spinner("Géocodage des villes…"):
         geo = geocode_cities(st.session_state.filters["cities"])
@@ -120,9 +123,6 @@ if st.session_state.filters["cities"]:
             max_surface=st.session_state.filters["max_surface"],
             limit=settings.DEFAULT_RESULT_LIMIT,
         )
-
-st.write("Colonnes DPE :", list(dpe_df.columns))
-st.write("Nombre de lignes :", len(dpe_df))
         
         # Application directe des filtres DPE / GES
         if st.session_state.filters["dpe_classes"]:
