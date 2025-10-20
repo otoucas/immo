@@ -1,5 +1,3 @@
-## config.py
-```python
 # config.py
 from dataclasses import dataclass
 
@@ -18,3 +16,4 @@ class Settings:
     DEFAULT_RESULT_LIMIT: int = 500
 
 settings = Settings()
+
