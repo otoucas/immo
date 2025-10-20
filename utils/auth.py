@@ -9,8 +9,8 @@ except Exception:
 
 def auth_gate() -> bool:
     """Formulaire de mot de passe + cookie 30 jours."""
-    APP_PASSWORD = st.secrets.get("APP_PASSWORD", "open")  # 🔐 mot de passe par défaut corrigé
-    COOKIE_KEY = st.secrets.get("COOKIE_KEY", "change-this-cookie-key")
+    APP_PASSWORD = st.secrets.get("APP_PASSWORD")  # 🔐 mot de passe par défaut corrigé
+    COOKIE_KEY = st.secrets.get("COOKIE_KEY")
     COOKIE_NAME = "dpe_auth_v1"
     MAX_AGE_SEC = 30 * 24 * 3600
 
