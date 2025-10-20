@@ -1,242 +1,191 @@
+# ui/main_interface.py
 import streamlit as st
 import folium
-from folium.plugins import MarkerCluster
 from streamlit_folium import st_folium
-import pandas as pd
+from folium.plugins import MarkerCluster
 
+import pandas as pd
 from core.data_ademe import fetch_ademe_all
-from core.data_dvf import get_dvf_data
-from core.geodata import (
-    compute_barycenter,
-    filter_ademe_data_by_radius,
-    geocode_city,
-    get_postal_codes_in_radius,
-)
-from core.postal_layers import get_postalcode_geojson
+from core.geodata import geocode_city, compute_barycenter, filter_ademe_data_by_radius
+from core.postal_layers import add_postalcode_layer, add_cadastre_layer
+from utils.storage import save_filter, load_filters, delete_saved_filter
 
 
 def render_main_interface():
-    st.title("🏠 Carte interactive DPE / GES + DVF")
-    st.markdown("Ajoutez une ou plusieurs villes, filtrez selon les classes DPE / GES et visualisez les résultats sur la carte.")
+    st.title("🗺️ Carte DPE / DVF interactive")
+    st.markdown("### 🔎 Paramètres et filtres")
 
-    # -------------------------------------------------------
-    # VARIABLES DE SESSION
-    # -------------------------------------------------------
+    # --- Initialisation ---
     if "villes" not in st.session_state:
         st.session_state["villes"] = []
+    if "codes_postaux" not in st.session_state:
+        st.session_state["codes_postaux"] = []
 
-    df = pd.DataFrame()
+    # === ZONE FILTRES ===
+    st.subheader("Filtres principaux")
 
-    # -------------------------------------------------------
-    # SIDEBAR : FILTRES
-    # -------------------------------------------------------
-    st.sidebar.header("🎛️ Filtres")
+    col1, col2, col3 = st.columns([1.5, 1, 1])
+    with col1:
+        # --- Villes dynamiques ---
+        st.markdown("**Ajouter une ville**")
+        with st.form("form_ville"):
+            new_ville = st.text_input("Nom de la ville")
+            submit_ville = st.form_submit_button("Ajouter")
+        if submit_ville and new_ville:
+            g = geocode_city(new_ville)
+            if g:
+                ville_label = f"{new_ville.title()} ({g.get('code_postal', '?')})"
+                if ville_label not in st.session_state["villes"]:
+                    st.session_state["villes"].append(ville_label)
+                    st.success(f"{ville_label} ajoutée ✅")
+            else:
+                st.warning("Ville introuvable.")
+        if st.session_state["villes"]:
+            to_delete = st.selectbox("🗑️ Supprimer une ville :", ["Aucune"] + st.session_state["villes"])
+            if to_delete != "Aucune":
+                st.session_state["villes"].remove(to_delete)
+                st.rerun()
 
-    # --- Ajout de ville ---
-    st.sidebar.markdown("#### Ajouter une ville")
-    with st.sidebar.form("form_ajout_ville"):
-        new_ville = st.text_input("Nom de la ville")
-        submit_ville = st.form_submit_button("Ajouter")
+    with col2:
+        # --- Rayon ---
+        rayon = st.number_input("Rayon (km)", min_value=0.0, step=0.5)
+        if st.button("Valider le rayon"):
+            if st.session_state["villes"]:
+                bary = compute_barycenter(st.session_state["villes"])
+                if bary:
+                    df_temp = fetch_ademe_all(st.session_state["villes"])
+                    df_temp = filter_ademe_data_by_radius(df_temp, bary[0], bary[1], rayon)
+                    codes_in_radius = df_temp["code_postal"].dropna().unique().tolist()
+                    st.session_state["codes_postaux"] = codes_in_radius
+                    st.success(f"{len(codes_in_radius)} codes postaux inclus dans le rayon.")
+            else:
+                st.warning("Ajoutez d'abord une ville.")
 
-    if submit_ville and new_ville:
-        g = geocode_city(new_ville)
-        if g:
-            label = f"{new_ville.title()} ({g.get('code_postal','?')})"
-            if label not in st.session_state["villes"]:
-                st.session_state["villes"].append(label)
-                st.sidebar.success(f"{label} ajoutée ✅")
-        else:
-            st.sidebar.warning("Ville introuvable.")
+    with col3:
+        # --- Surface habitable ---
+        st.markdown("**Surface habitable (m²)**")
+        surface_min = st.number_input("Min", min_value=0, value=0)
+        surface_max = st.number_input("Max", min_value=0, value=500)
 
-    # --- Villes sélectionnées ---
-    if st.session_state["villes"]:
-        st.sidebar.markdown("#### Villes sélectionnées :")
-        to_remove = []
-        for v in st.session_state["villes"]:
-            c1, c2 = st.sidebar.columns([4, 1])
-            c1.write(v)
-            if c2.button("🗑️", key=f"del_{v}"):
-                to_remove.append(v)
-        for v in to_remove:
-            st.session_state["villes"].remove(v)
-
-    # --- Rayon (si 1 ville) ---
-    if len(st.session_state["villes"]) == 1:
-        radius = st.sidebar.number_input(
-            "Rayon (km)",
-            min_value=0.0,
-            step=1.0,
-            value=st.session_state.get("radius", 0.0),
-            key="radius",
+    # --- Filtres DPE / GES ---
+    st.subheader("Filtres DPE et GES")
+    col_dpe, col_ges = st.columns(2)
+    with col_dpe:
+        dpe_selected = st.multiselect(
+            "Classe DPE",
+            ["A", "B", "C", "D", "E", "F", "G"],
+            default=[]
         )
+    with col_ges:
+        ges_selected = st.multiselect(
+            "Classe GES",
+            ["A", "B", "C", "D", "E", "F", "G"],
+            default=[]
+        )
+
+    # === OPTIONS D’AFFICHAGE ===
+    st.subheader("Options d'affichage sur la carte")
+    col_opt1, col_opt2, col_opt3 = st.columns([1, 1, 1])
+    with col_opt1:
+        show_postal = st.checkbox("Contours codes postaux")
+    with col_opt2:
+        show_cadastre = st.checkbox("Parcelles cadastrales")
+    with col_opt3:
+        carte_type = st.radio("Type de carte", ["Classique", "Satellite"], horizontal=True)
+
+    # === FILTRES ACTIFS ===
+    st.markdown("### 🎛️ Filtres actifs")
+    active_filters = []
+    if st.session_state["villes"]:
+        active_filters.append("Villes : " + ", ".join(st.session_state["villes"]))
+    if rayon:
+        active_filters.append(f"Rayon : {rayon} km")
+    if dpe_selected:
+        active_filters.append("DPE : " + ", ".join(dpe_selected))
+    if ges_selected:
+        active_filters.append("GES : " + ", ".join(ges_selected))
+    if surface_min or surface_max:
+        active_filters.append(f"Surface : {surface_min or 0} – {surface_max or '∞'} m²")
+    if st.session_state["codes_postaux"]:
+        active_filters.append("Codes postaux : " + ", ".join(st.session_state["codes_postaux"]))
+
+    st.info(" | ".join(active_filters) if active_filters else "Aucun filtre appliqué.")
+
+    # === CARTE ===
+    st.markdown("### 🗺️ Carte interactive")
+
+    m = folium.Map(location=[46.6, 2.4], zoom_start=6)
+    if st.session_state["villes"]:
+        bary = compute_barycenter(st.session_state["villes"])
+        if bary:
+            m.location = bary
+            m.zoom_start = 11
+
+    if carte_type == "Satellite":
+        folium.TileLayer("Esri.WorldImagery", name="Satellite").add_to(m)
     else:
-        radius = 0.0
+        folium.TileLayer("OpenStreetMap", name="Classique").add_to(m)
 
-    # --- Surface ---
-    st.sidebar.markdown("#### Surface habitable (m²)")
-    cmin, cmax = st.sidebar.columns(2)
-    surface_min = cmin.number_input("Min", 0.0, step=5.0, value=st.session_state.get("surface_min", 0.0))
-    surface_max = cmax.number_input("Max", 0.0, step=5.0, value=st.session_state.get("surface_max", 500.0))
-    st.session_state["surface_min"] = surface_min
-    st.session_state["surface_max"] = surface_max
+    # Ajout des calques
+    if show_postal and st.session_state["codes_postaux"]:
+        add_postalcode_layer(m, st.session_state["codes_postaux"])
+    if show_cadastre:
+        add_cadastre_layer(m)
 
-    # --- DPE / GES lettres ---
-    st.sidebar.markdown("#### Classes DPE")
-    dpe_selected = [c for c in "ABCDEFG" if st.sidebar.checkbox(c, value=False, key=f"dpe_{c}")]
-    st.sidebar.markdown("#### Classes GES")
-    ges_selected = [c for c in "ABCDEFG" if st.sidebar.checkbox(c, value=False, key=f"ges_{c}")]
+    # --- Données DPE filtrées ---
+    df = fetch_ademe_all(st.session_state["villes"])
+    if not df.empty:
+        if dpe_selected:
+            df = df[df["classe_consommation_energie"].isin(dpe_selected)]
+        if ges_selected:
+            df = df[df["classe_estimation_ges"].isin(ges_selected)]
+        if surface_min:
+            df = df[df["surface_habitable_logement"] >= surface_min]
+        if surface_max:
+            df = df[df["surface_habitable_logement"] <= surface_max]
+        if rayon and st.session_state["villes"]:
+            bary = compute_barycenter(st.session_state["villes"])
+            if bary:
+                df = filter_ademe_data_by_radius(df, bary[0], bary[1], rayon)
 
-    # --- Carte ---
-    map_type = st.sidebar.selectbox("Type de carte", ["Classique", "Satellite"])
-    show_postal_layer = st.sidebar.checkbox("Contours des codes postaux", True)
-    show_cadastre = st.sidebar.checkbox("Parcelles cadastrales (IGN)", False)
+        # --- Points sur la carte ---
+        cluster = MarkerCluster().add_to(m)
+        for _, r in df.iterrows():
+            folium.Marker(
+                location=[r["latitude"], r["longitude"]],
+                popup=(
+                    f"<b>{r.get('adresse_nom_voie','?')}</b><br>"
+                    f"DPE : {r.get('classe_consommation_energie','?')}<br>"
+                    f"GES : {r.get('classe_estimation_ges','?')}<br>"
+                    f"Surface : {r.get('surface_habitable_logement','?')} m²<br>"
+                    f"Nbre bâtiments : {r.get('nombre_batiments','?')}<br>"
+                    f"Date DPE : {r.get('date_etablissement_dpe','?')}"
+                ),
+            ).add_to(cluster)
 
-    launch = st.sidebar.button("🚀 Lancer la recherche")
+    st_folium(m, height=600)
 
-    # -------------------------------------------------------
-    # CENTRAGE AUTOMATIQUE
-    # -------------------------------------------------------
-    tiles = "OpenStreetMap" if map_type == "Classique" else "Esri.WorldImagery"
-    villes_coords = []
-
-    for v in st.session_state["villes"]:
-        nom = v.split("(")[0].strip()
-        g = geocode_city(nom)
-        if g:
-            villes_coords.append((g["lat"], g["lon"]))
-
-    if len(villes_coords) == 1:
-        map_center, zoom = villes_coords[0], 12
-    elif len(villes_coords) > 1:
-        lat = sum(c[0] for c in villes_coords) / len(villes_coords)
-        lon = sum(c[1] for c in villes_coords) / len(villes_coords)
-        map_center, zoom = (lat, lon), 9
-    else:
-        map_center, zoom = [46.6, 2.4], 6
-
-    # -------------------------------------------------------
-    # AFFICHAGE DE LA CARTE
-    # -------------------------------------------------------
-    m = folium.Map(location=map_center, zoom_start=zoom, tiles=tiles)
-    for c, v in zip(villes_coords, st.session_state["villes"]):
-        folium.Marker(location=c, tooltip=v, icon=folium.Icon(color="red", icon="flag")).add_to(m)
-
-    if radius > 0 and villes_coords:
-        folium.Circle(
-            location=villes_coords[0],
-            radius=radius * 1000,
-            color="#3388ff",
-            fill=True,
-            fill_opacity=0.2,
-        ).add_to(m)
-
-    st.markdown("### 🗺️ Carte de recherche")
-    map_click = st_folium(m, width=1200, height=550)
-
-    # -------------------------------------------------------
-    # RECHERCHE
-    # -------------------------------------------------------
-    if launch:
-        villes = [v.split("(")[0].strip() for v in st.session_state["villes"]]
-        bary = compute_barycenter(villes) if villes else None
-
-        if not bary:
-            st.warning("Aucune ville valide sélectionnée.")
-            return
-
-        code_postaux = []
-        for v in villes:
-            g = geocode_city(v)
-            if g and g["code_postal"]:
-                code_postaux.append(g["code_postal"])
-
-        if radius > 0:
-            rayon_cp = get_postal_codes_in_radius(bary, radius)
-            if rayon_cp:
-                code_postaux.extend(rayon_cp)
-                st.info(f"📍 Codes postaux dans le rayon ({radius} km) : {', '.join(sorted(set(rayon_cp)))}")
-            else:
-                st.warning("Aucun code postal supplémentaire trouvé dans ce rayon.")
-
-        code_postaux = sorted(set(code_postaux))
-
-        # --- Contours postaux ---
-        if show_postal_layer and code_postaux:
-            geojson = get_postalcode_geojson(code_postaux)
-            if geojson and geojson.get("features"):
-                folium.GeoJson(
-                    geojson,
-                    name="Contours postaux",
-                    style_function=lambda x: {"color": "#ff6600", "weight": 2, "opacity": 0.6},
-                    tooltip=folium.GeoJsonTooltip(fields=["nom", "codePostal"]),
-                ).add_to(m)
-
-        # --- Couches cadastrales ---
-        if show_cadastre:
-            folium.raster_layers.WmsTileLayer(
-                url="https://mapserver.cadastre.data.gouv.fr/wms",
-                layers="parcelles",
-                name="Cadastre (parcelles)",
-                fmt="image/png",
-                transparent=True,
-                opacity=0.6,
-                attribution="© Cadastre data.gouv.fr",
-            ).add_to(m)
-
-        # --- Données ADEME ---
-        if code_postaux:
-            df = fetch_ademe_all(code_postaux)
-            if df.empty:
-                st.warning("Aucun résultat trouvé.")
-            else:
-                if "classe_consommation_energie" in df:
-                    df = df[df["classe_consommation_energie"].isin(dpe_selected)] if dpe_selected else df
-                if "classe_estimation_ges" in df:
-                    df = df[df["classe_estimation_ges"].isin(ges_selected)] if ges_selected else df
-                if "surface_habitable_logement" in df:
-                    df = df[
-                        (df["surface_habitable_logement"] >= surface_min)
-                        & (df["surface_habitable_logement"] <= surface_max)
-                    ]
-                if radius > 0:
-                    df = filter_ademe_data_by_radius(df, bary[0], bary[1], radius)
-
-                if df.empty:
-                    st.warning("Aucun logement ne correspond aux filtres.")
-                else:
-                    cluster = MarkerCluster().add_to(m)
-                    for _, r in df.iterrows():
-                        popup = f"""
-                        <b>{r.get('adresse_nom_voie','?')}</b><br>
-                        DPE: {r.get('classe_consommation_energie','?')}<br>
-                        GES: {r.get('classe_estimation_ges','?')}<br>
-                        Surface: {r.get('surface_habitable_logement','?')} m²<br>
-                        """
-                        folium.Marker(
-                            location=[r["latitude"], r["longitude"]],
-                            popup=popup,
-                            icon=folium.Icon(color="blue", icon="home"),
-                        ).add_to(cluster)
-
-        folium.LayerControl().add_to(m)
-        st_folium(m, width=1200, height=600)
-
-    # -------------------------------------------------------
-    # TABLEAU DES RÉSULTATS
-    # -------------------------------------------------------
-    st.markdown("### 📋 Résultats DPE")
+    # === TABLEAU DE RÉSULTATS ===
+    st.markdown("### 📋 Résultats")
     display_cols = [
         "adresse_nom_voie",
-        "code_postal",
-        "commune",
         "surface_habitable_logement",
         "nombre_batiments",
         "classe_consommation_energie",
         "classe_estimation_ges",
+        "date_etablissement_dpe",
     ]
-    for c in display_cols:
-        if c not in df.columns:
-            df[c] = ""
+    if df.empty:
+        st.dataframe(pd.DataFrame(columns=display_cols))
+    else:
+        display_df = df[display_cols].copy()
+        st.dataframe(display_df)
 
-    st.dataframe(df[display_cols].head(500))
-    st.download_button("⬇️ Export CSV", df[display_cols].to_csv(index=False), "resultats_dpe.csv")
+        csv = display_df.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            "📤 Exporter les résultats en CSV",
+            csv,
+            "resultats_dpe.csv",
+            "text/csv",
+            key="download-csv"
+        )
