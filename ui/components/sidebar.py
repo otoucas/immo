@@ -12,7 +12,6 @@ def render_sidebar(state: AppState, svc: SearchService):
     # Ajout d'une ville / code postal
     st.sidebar.subheader("Zones géographiques")
     with st.sidebar.form("city_form", clear_on_submit=True):
-        col1, col2 = st.columns([2,1])
         with col1:
             q = st.text_input("Ville", placeholder="Ex: Lyon, Paris, ...")
         with col2:
@@ -37,29 +36,6 @@ def render_sidebar(state: AppState, svc: SearchService):
             if cols[2].button("✕", key=f"del_city_{i}"):
                 state.selected_cities.pop(i)
                 st.rerun()
-
-    # Codes postaux additionnels
-    st.sidebar.text_input("Codes postaux (séparés par des virgules)", key="_tmp_pcs", placeholder="69001,69002")
-    with st.sidebar.form("pc_form", clear_on_submit=True):
-        raw = st.text_input("Codes postaux (séparés par des virgules)", key="_tmp_pcs", placeholder="69001,69002")
-        submitted_pc = st.form_submit_button("Ajouter codes postaux")
-        if submitted_pc:
-            pcs = [p.strip() for p in raw.split(",") if p.strip()]
-            for p in pcs:
-                if p not in state.extra_postcodes:
-                    state.extra_postcodes.append(p)
-            st.rerun()
-
-    if state.extra_postcodes:
-        st.sidebar.caption("Codes postaux ajoutés :")
-        for i, p in enumerate(state.extra_postcodes):
-            cols = st.sidebar.columns([4,1])
-            cols[0].markdown(f"`{p}`")
-            if cols[1].button("✕", key=f"del_pc_{i}"):
-                state.extra_postcodes.pop(i)
-                st.rerun()
-
-    st.sidebar.divider()
 
     # Filtres surface
     st.sidebar.subheader("Surface habitable (m²)")
