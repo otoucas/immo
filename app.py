@@ -58,4 +58,104 @@ with col_a:
     min_surf = st.number_input("Min", min_value=0, value=0, step=1)
 with col_b:
     max_surf = st.number_input("Max", min_value=0, value=0, step=1)
-st.session_state.filters_
+st.session_state.filters["min_surface"] = int(min_surf) if min_surf > 0 else None
+st.session_state.filters["max_surface"] = int(max_surf) if max_surf > 0 else None
+
+# ---- CASES À COCHER DPE / GES ----
+st.sidebar.subheader("Classes DPE")
+dpe_opts = ["A", "B", "C", "D", "E", "F", "G"]
+st.session_state.filters["dpe_classes"] = [
+    c for c in dpe_opts if st.sidebar.checkbox(f"DPE {c}", key=f"dpe_{c}")
+]
+
+st.sidebar.subheader("Classes GES")
+ges_opts = ["A", "B", "C", "D", "E", "F", "G"]
+st.session_state.filters["ges_classes"] = [
+    c for c in ges_opts if st.sidebar.checkbox(f"GES {c}", key=f"ges_{c}")
+]
+
+# ─────────────────────────────────────────────
+# MAIN – Carte + Tableau permanents
+# ─────────────────────────────────────────────
+
+st.title("🔎 DPE-GES Finder (Open Data)")
+st.caption("Affichage permanent de la carte et du tableau, mise à jour automatique selon les filtres.")
+
+left, right = st.columns([3, 4], gap="large")
+
+# Données par défaut
+empty_extent = {"center_lat": 46.6, "center_lon": 2.6, "zoom_like": 5.5, "bbox": None}
+empty_df = pd.DataFrame(
+    columns=[
+        "full_address",
+        "city",
+        "lat",
+        "lon",
+        "dpe",
+        "ges",
+        "surface",
+        "date_dpe",
+        "row_id",
+        "dvf",
+        "dvf_count",
+    ]
+)
+
+# Prépare des variables de sortie
+geo = []
+extent = empty_extent
+dpe_df = empty_df.copy()
+
+# ---- Lancer la recherche seulement si villes présentes ----
+if st.session_state.filters["cities"]:
+    with st.spinner("Géocodage des villes…"):
+        geo = geocode_cities(st.session_state.filters["cities"])
+        if geo:
+            extent = compute_cities_extent(geo)
+
+    with st.spinner("Récupération des DPE depuis l'ADEME…"):
+        dpe_df = fetch_dpe(
+            cities=geo,
+            min_surface=st.session_state.filters["min_surface"],
+            max_surface=st.session_state.filters["max_surface"],
+            limit=settings.DEFAULT_RESULT_LIMIT,
+        )
+
+        # Application directe des filtres DPE / GES
+        if st.session_state.filters["dpe_classes"]:
+            dpe_df = dpe_df[dpe_df["dpe"].isin(st.session_state.filters["dpe_classes"])]
+        if st.session_state.filters["ges_classes"]:
+            dpe_df = dpe_df[dpe_df["ges"].isin(st.session_state.filters["ges_classes"])]
+
+    if not dpe_df.empty:
+        dpe_df["row_id"] = dpe_df.index.astype(str)
+    else:
+        dpe_df = empty_df.copy()
+
+    # Enrichissement DVF automatique (facultatif)
+    if not dpe_df.empty:
+        with st.spinner("Récupération des infos DVF…"):
+            unique_addresses = dpe_df["full_address"].dropna().drop_duplicates().head(50).tolist()
+            dvf_data = fetch_dvf_for_addresses(unique_addresses)
+            dpe_df["dvf_count"] = dpe_df["full_address"].map(lambda a: len(dvf_data.get(a, [])))
+            dpe_df["dvf"] = dpe_df["full_address"].map(lambda a: dvf_data.get(a, []))
+else:
+    # Aucune ville : on garde la carte vide et le tableau vide
+    extent = empty_extent
+    dpe_df = empty_df.copy()
+
+# ---- Affichage permanent ----
+with left:
+    selected_row_id = st.session_state.get("selected_row_id")
+    render_map(df=dpe_df, extent=extent, selected_row_id=selected_row_id)
+
+with right:
+    selected_row_id = render_results_table(dpe_df)
+    if selected_row_id is not None:
+        st.session_state["selected_row_id"] = selected_row_id
+
+# ---- Statut ----
+if not dpe_df.empty:
+    st.success(f"{len(dpe_df)} logements affichés.")
+else:
+    st.caption("Aucun résultat pour les filtres actuels (carte et tableau visibles).")
