@@ -1,39 +1,48 @@
 # core/postal_layers.py
 import requests
+import folium
+from folium import GeoJson
+from folium.features import GeoJsonTooltip
 
-def _fetch_commune_contour_by_cp(cp: str):
-    """Retourne un FeatureCollection GeoJSON (contour) pour un code postal donné."""
+def get_postalcode_geojson(code_postal: str):
+    """Récupère le contour d'un code postal via l'API Geo.gouv.fr"""
     try:
-        url = "https://geo.api.gouv.fr/communes"
-        params = {
-            "codePostal": cp,
-            "format": "geojson",
-            "geometry": "contour",  # indispensable pour avoir le polygone
-        }
-        r = requests.get(url, params=params, timeout=15)
+        url = f"https://geo.api.gouv.fr/communes?codePostal={code_postal}&format=geojson"
+        r = requests.get(url, timeout=10)
         if r.status_code == 200:
-            return r.json()  # FeatureCollection
+            return r.json()
     except Exception:
         pass
-    return {"type": "FeatureCollection", "features": []}
+    return None
 
 
-def get_postalcode_geojson(code_postaux):
-    """
-    Agrège les contours des communes correspondant à CHAQUE code postal fourni.
-    Retourne un FeatureCollection fusionné.
-    """
-    if not code_postaux:
-        return {"type": "FeatureCollection", "features": []}
-
-    features = []
+def add_postalcode_layer(map_obj: folium.Map, code_postaux: list):
+    """Ajoute les contours des codes postaux sur la carte."""
     for cp in code_postaux:
-        fc = _fetch_commune_contour_by_cp(str(cp))
-        feats = fc.get("features", [])
-        # enrichit le tooltip: ajoute 'codePostal' (utile côté popup)
-        for f in feats:
-            props = f.setdefault("properties", {})
-            props["codePostal"] = str(cp)
-        features.extend(feats)
+        geojson_data = get_postalcode_geojson(cp)
+        if geojson_data:
+            GeoJson(
+                geojson_data,
+                name=f"Code postal {cp}",
+                style_function=lambda x: {
+                    "fillColor": "#3388ff",
+                    "color": "#3388ff",
+                    "weight": 2,
+                    "fillOpacity": 0.05,
+                },
+                tooltip=GeoJsonTooltip(fields=["nom"], aliases=["Commune :"]),
+            ).add_to(map_obj)
+    folium.LayerControl().add_to(map_obj)
 
-    return {"type": "FeatureCollection", "features": features}
+
+def add_cadastre_layer(map_obj: folium.Map):
+    """Ajoute le calque WMS du cadastre sur la carte."""
+    folium.raster_layers.WmsTileLayer(
+        url="https://wms.cadastre.gouv.fr/cadastre",
+        layers="CP.CadastralParcel",
+        fmt="image/png",
+        transparent=True,
+        name="Parcelles cadastrales",
+        attribution="Cadastre © DGFiP",
+    ).add_to(map_obj)
+    folium.LayerControl().add_to(map_obj)
