@@ -18,16 +18,13 @@ class SearchService:
         pts = [(c["lat"], c["lon"]) for c in cities if c.get("lat") and c.get("lon")]
         return centroid(pts)
 
-    def search_ademe(self, selected_cities: List[Dict], postcodes: List[str], dpe: List[str], ges: List[str], smin: int, smax: int) -> pd.DataFrame:
+    def search_ademe(self, selected_cities, dpe, ges, smin, smax):
         citycodes = [c.get("citycode") for c in selected_cities if c.get("citycode")]
-        pcodes = list({c.get("postcode") for c in selected_cities if c.get("postcode")})
-        pcodes.extend(postcodes)
-        pcodes = list({p for p in pcodes if p})
         return self.ademe.search(citycodes=citycodes or None,
-                                 postcodes=pcodes or None,
                                  dpe_classes=dpe or None,
                                  ges_classes=ges or None,
                                  surface_min=smin, surface_max=smax)
+
 
     def dvf_for_result_row(self, row: pd.Series) -> pd.DataFrame:
         # tenter avec la voie extraite de l'adresse
