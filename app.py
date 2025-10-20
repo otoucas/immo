@@ -21,36 +21,81 @@ st.set_page_config(page_title="DPE‑GES Finder", layout="wide")
 # --- Sidebar (filters) ---
 st.sidebar.title("Filtres")
 
-# City input (allow multiple)
-with st.sidebar:
-    st.subheader("Villes d'intérêt")
-    cities_input = st.text_input(
-        "Renseigner une ou plusieurs villes (séparées par des virgules)",
-        value="",
-        placeholder="Ex: Lyon, Villeurbanne, Caluire-et-Cuire",
-    )
-
-    st.subheader("Surface habitable (m²)")
-    col_a, col_b = st.columns(2)
-    with col_a:
-        min_surf = st.number_input("Min", min_value=0, value=0, step=1)
-    with col_b:
-        max_surf = st.number_input("Max", min_value=0, value=0, step=1)
-
-    # Buttons to manage filters
-    apply_btn = st.button("Lancer la recherche", type="primary")
-    reset_btn = st.button("Réinitialiser tous les filtres")
-
-# Manage state for filters
+# État persistant des filtres
 if "filters" not in st.session_state:
     st.session_state.filters = {
         "cities": [],
         "min_surface": None,
         "max_surface": None,
+        "dpe_classes": [],
+        "ges_classes": [],
     }
 
+# ---- CHOIX DES VILLES ----
+st.sidebar.subheader("Villes d'intérêt")
+
+# champ de saisie d'une ville à ajouter
+new_city = st.sidebar.text_input(
+    "Ajouter une ville",
+    value="",
+    placeholder="Ex: Lyon",
+)
+
+col_add, col_clear = st.sidebar.columns([1, 1])
+with col_add:
+    if st.button("➕ Ajouter"):
+        if new_city and new_city.strip():
+            city_clean = new_city.strip()
+            if city_clean not in st.session_state.filters["cities"]:
+                st.session_state.filters["cities"].append(city_clean)
+with col_clear:
+    if st.button("🗑️ Vider la liste"):
+        st.session_state.filters["cities"] = []
+
+# affichage des villes ajoutées avec leur code postal (récupéré via BAN)
+if st.session_state.filters["cities"]:
+    st.sidebar.write("**Villes sélectionnées :**")
+    for v in st.session_state.filters["cities"]:
+        st.sidebar.markdown(f"- {v}")
+else:
+    st.sidebar.caption("Aucune ville ajoutée.")
+
+# ---- FILTRES SURFACE ----
+st.sidebar.subheader("Surface habitable (m²)")
+col_a, col_b = st.sidebar.columns(2)
+with col_a:
+    min_surf = st.number_input("Min", min_value=0, value=0, step=1)
+with col_b:
+    max_surf = st.number_input("Max", min_value=0, value=0, step=1)
+
+# ---- FILTRES DPE/GES ----
+st.sidebar.subheader("Classes DPE")
+dpe_opts = ["A", "B", "C", "D", "E", "F", "G"]
+sel_dpe = st.sidebar.multiselect("Choisir les classes DPE à inclure :", dpe_opts)
+
+st.sidebar.subheader("Classes GES")
+ges_opts = ["A", "B", "C", "D", "E", "F", "G"]
+sel_ges = st.sidebar.multiselect("Choisir les classes GES à inclure :", ges_opts)
+
+# ---- BOUTONS ACTION ----
+apply_btn = st.sidebar.button("🔍 Lancer la recherche", type="primary")
+reset_btn = st.sidebar.button("🧹 Réinitialiser les filtres")
+
 if reset_btn:
-    clear_all_filters(st.session_state)
+    st.session_state.filters = {
+        "cities": [],
+        "min_surface": None,
+        "max_surface": None,
+        "dpe_classes": [],
+        "ges_classes": [],
+    }
+
+# ---- MISE À JOUR DES FILTRES ----
+if apply_btn:
+    st.session_state.filters["min_surface"] = int(min_surf) if min_surf > 0 else None
+    st.session_state.filters["max_surface"] = int(max_surf) if max_surf > 0 else None
+    st.session_state.filters["dpe_classes"] = sel_dpe
+    st.session_state.filters["ges_classes"] = sel_ges
 
 # Parse cities
 parsed_cities = [c.strip() for c in cities_input.split(",") if c.strip()]
