@@ -116,17 +116,37 @@ def render_main_interface():
     # COMPTEUR “LIVE”
     # ------------------------------
     compteur = 0
-    if not df.empty:
-        df_filtered = df.copy()
-        if dpe_sel:
-            df_filtered = df_filtered[df_filtered["classe_consommation_energie"].isin(dpe_sel)]
-        if ges_sel:
-            df_filtered = df_filtered[df_filtered["classe_estimation_ges"].isin(ges_sel)]
+if not df.empty:
+    df_filtered = df.copy()
+
+    # --- Harmonisation des noms de colonnes
+    rename_map = {
+        "surface_habitable": "surface_habitable_logement",
+        "surface_habitable_l": "surface_habitable_logement",
+        "surface_logement": "surface_habitable_logement",
+    }
+    df_filtered.rename(columns=rename_map, inplace=True)
+
+    # --- Application des filtres
+    if "classe_consommation_energie" in df_filtered.columns and dpe_sel:
+        df_filtered = df_filtered[df_filtered["classe_consommation_energie"].isin(dpe_sel)]
+
+    if "classe_estimation_ges" in df_filtered.columns and ges_sel:
+        df_filtered = df_filtered[df_filtered["classe_estimation_ges"].isin(ges_sel)]
+
+    if "surface_habitable_logement" in df_filtered.columns:
         df_filtered = df_filtered[
             (df_filtered["surface_habitable_logement"] >= smin)
             & (df_filtered["surface_habitable_logement"] <= smax)
         ]
-        compteur = len(df_filtered)
+    else:
+        st.warning("⚠️ Données ADEME sans surface habitable — filtrage désactivé.")
+
+    compteur = len(df_filtered)
+else:
+    df_filtered = pd.DataFrame()
+    compteur = 0
+
 
     st.sidebar.markdown(f"### 📊 Logements correspondant aux filtres : **{compteur}**")
 
