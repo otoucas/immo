@@ -40,14 +40,15 @@ def render_sidebar(state: AppState, svc: SearchService):
 
     # Codes postaux additionnels
     st.sidebar.text_input("Codes postaux (séparés par des virgules)", key="_tmp_pcs", placeholder="69001,69002")
-    if st.sidebar.button("Ajouter codes postaux"):
-        raw = st.session_state.get("_tmp_pcs", "")
-        pcs = [p.strip() for p in raw.split(",") if p.strip()]
-        for p in pcs:
-            if p not in state.extra_postcodes:
-                state.extra_postcodes.append(p)
-        st.session_state["_tmp_pcs"] = ""
-        st.rerun()
+    with st.sidebar.form("pc_form", clear_on_submit=True):
+        raw = st.text_input("Codes postaux (séparés par des virgules)", key="_tmp_pcs", placeholder="69001,69002")
+        submitted_pc = st.form_submit_button("Ajouter codes postaux")
+        if submitted_pc:
+            pcs = [p.strip() for p in raw.split(",") if p.strip()]
+            for p in pcs:
+                if p not in state.extra_postcodes:
+                    state.extra_postcodes.append(p)
+            st.rerun()
 
     if state.extra_postcodes:
         st.sidebar.caption("Codes postaux ajoutés :")
