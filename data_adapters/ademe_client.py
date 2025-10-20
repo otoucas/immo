@@ -89,8 +89,8 @@ class AdemeDPEClient:
         if df.empty:
             return pd.DataFrame(columns=["adresse", "code_postal", "commune", "lat", "lon", "dpe", "ges", "surface"])
 
-        # Remap champs
-        col_adresse = _first(df, ADEME_FIELDS["adresse"]) or "adresse"
+        # Trouver les colonnes existantes
+        col_adresse = _first(df, ADEME_FIELDS["adresse"])
         col_cp = _first(df, ADEME_FIELDS["code_postal"]) or "code_postal"
         col_commune = _first(df, ADEME_FIELDS["commune"]) or "commune"
         col_lat = _first(df, ADEME_FIELDS["lat"]) or "lat"
@@ -99,14 +99,27 @@ class AdemeDPEClient:
         col_ges = _first(df, ADEME_FIELDS["ges"]) or "classe_ges"
         col_surf = _first(df, ADEME_FIELDS["surface"]) or "surface"
 
+        # Si pas d'adresse, on fabrique un libellé simple depuis CP + commune
+        if col_adresse and col_adresse in df.columns:
+            adresse = df[col_adresse]
+        else:
+            adresse = df.get(col_commune, "") + " " + df.get(col_cp, "")
+            # affichage Streamlit facultatif si on veut suivre le problème
+            try:
+                import streamlit as st
+                st.sidebar.warning("⚠️ Champ 'adresse' absent du dataset, reconstitué depuis commune + CP")
+            except Exception:
+                pass
+
         out = pd.DataFrame({
-            "adresse": df[col_adresse],
-            "code_postal": df[col_cp],
-            "commune": df[col_commune],
-            "lat": pd.to_numeric(df[col_lat], errors="coerce"),
-            "lon": pd.to_numeric(df[col_lon], errors="coerce"),
-            "dpe": df[col_dpe],
-            "ges": df[col_ges],
-            "surface": pd.to_numeric(df[col_surf], errors="coerce"),
+            "adresse": adresse,
+            "code_postal": df.get(col_cp, ""),
+            "commune": df.get(col_commune, ""),
+            "lat": pd.to_numeric(df.get(col_lat, None), errors="coerce"),
+            "lon": pd.to_numeric(df.get(col_lon, None), errors="coerce"),
+            "dpe": df.get(col_dpe, ""),
+            "ges": df.get(col_ges, ""),
+            "surface": pd.to_numeric(df.get(col_surf, None), errors="coerce"),
         }).dropna(subset=["lat", "lon"]).reset_index(drop=True)
+
         return out
