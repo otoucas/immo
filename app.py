@@ -1,5 +1,5 @@
 # app.py
-# Streamlit app for DPE-GES Finder
+# Streamlit app for DPE-GES Finder (version simplifiée et réactive)
 
 import pandas as pd
 import streamlit as st
@@ -19,7 +19,7 @@ st.set_page_config(page_title="DPE-GES Finder", layout="wide")
 
 st.sidebar.title("Filtres")
 
-# Initialisation de l'état
+# Initialisation des filtres persistants
 if "filters" not in st.session_state:
     st.session_state.filters = {
         "cities": [],
@@ -33,19 +33,17 @@ if "filters" not in st.session_state:
 st.sidebar.subheader("Villes d'intérêt")
 
 new_city = st.sidebar.text_input("Ajouter une ville", value="", placeholder="Ex : Lyon")
-
 col_add, col_clear = st.sidebar.columns([1, 1])
 with col_add:
-    if st.button("➕ Ajouter"):
+    if st.button("➕ Ajouter", use_container_width=True):
         if new_city and new_city.strip():
             city_clean = new_city.strip()
             if city_clean not in st.session_state.filters["cities"]:
                 st.session_state.filters["cities"].append(city_clean)
 with col_clear:
-    if st.button("🗑️ Vider la liste"):
+    if st.button("🗑️ Vider la liste", use_container_width=True):
         st.session_state.filters["cities"] = []
 
-# affichage des villes ajoutées
 if st.session_state.filters["cities"]:
     st.sidebar.write("**Villes sélectionnées :**")
     for v in st.session_state.filters["cities"]:
@@ -60,44 +58,30 @@ with col_a:
     min_surf = st.number_input("Min", min_value=0, value=0, step=1)
 with col_b:
     max_surf = st.number_input("Max", min_value=0, value=0, step=1)
+st.session_state.filters["min_surface"] = int(min_surf) if min_surf > 0 else None
+st.session_state.filters["max_surface"] = int(max_surf) if max_surf > 0 else None
 
-# ---- DPE / GES ----
+# ---- CASES À COCHER DPE / GES ----
 st.sidebar.subheader("Classes DPE")
 dpe_opts = ["A", "B", "C", "D", "E", "F", "G"]
-sel_dpe = st.sidebar.multiselect("Choisir les classes DPE :", dpe_opts)
+dpe_selected = [
+    c for c in dpe_opts if st.sidebar.checkbox(f"DPE {c}", value=False, key=f"dpe_{c}")
+]
+st.session_state.filters["dpe_classes"] = dpe_selected
 
 st.sidebar.subheader("Classes GES")
 ges_opts = ["A", "B", "C", "D", "E", "F", "G"]
-sel_ges = st.sidebar.multiselect("Choisir les classes GES :", ges_opts)
-
-# ---- ACTIONS ----
-apply_btn = st.sidebar.button("🔍 Lancer la recherche", type="primary")
-reset_btn = st.sidebar.button("🧹 Réinitialiser les filtres")
-
-if reset_btn:
-    st.session_state.filters = {
-        "cities": [],
-        "min_surface": None,
-        "max_surface": None,
-        "dpe_classes": [],
-        "ges_classes": [],
-    }
-
-if apply_btn:
-    st.session_state.filters["min_surface"] = int(min_surf) if min_surf > 0 else None
-    st.session_state.filters["max_surface"] = int(max_surf) if max_surf > 0 else None
-    st.session_state.filters["dpe_classes"] = sel_dpe
-    st.session_state.filters["ges_classes"] = sel_ges
+ges_selected = [
+    c for c in ges_opts if st.sidebar.checkbox(f"GES {c}", value=False, key=f"ges_{c}")
+]
+st.session_state.filters["ges_classes"] = ges_selected
 
 # ─────────────────────────────────────────────
-# MAIN – Carte + Tableau
+# MAIN – Carte + Tableau toujours affichés
 # ─────────────────────────────────────────────
 
 st.title("🔎 DPE-GES Finder (Open Data)")
-st.caption(
-    "Recherchez des logements par villes et surfaces, "
-    "visualisez les résultats sur carte et tableau."
-)
+st.caption("Affichage permanent de la carte et du tableau, mise à jour automatique selon les filtres.")
 
 left, right = st.columns([3, 4], gap="large")
 
@@ -123,7 +107,7 @@ geo = []
 extent = empty_extent
 dpe_df = empty_df.copy()
 
-# ---- Recherche si des villes existent ----
+# ---- Recherche automatique si des villes sont présentes ----
 if st.session_state.filters["cities"]:
     with st.spinner("Géocodage des villes…"):
         geo = geocode_cities(st.session_state.filters["cities"])
@@ -138,7 +122,7 @@ if st.session_state.filters["cities"]:
             limit=settings.DEFAULT_RESULT_LIMIT,
         )
 
-        # Application filtres DPE / GES
+        # Application directe des filtres DPE / GES
         if st.session_state.filters["dpe_classes"]:
             dpe_df = dpe_df[dpe_df["dpe"].isin(st.session_state.filters["dpe_classes"])]
         if st.session_state.filters["ges_classes"]:
@@ -149,27 +133,17 @@ if st.session_state.filters["cities"]:
     else:
         dpe_df = empty_df.copy()
 
-    # ---- Enrichissement DVF optionnel ----
-    with st.expander("Options d'enrichissement DVF (valeurs foncières)"):
-        enrich_dvf = st.checkbox("Joindre les infos DVF par adresse", value=True)
-        dvf_limit = st.slider("Max adresses DVF à interroger", 10, 200, 50, 10)
-
-    if enrich_dvf and not dpe_df.empty:
-        with st.spinner("Interrogation DVF…"):
-            unique_addresses = (
-                dpe_df["full_address"].dropna().drop_duplicates().head(dvf_limit).tolist()
-            )
+    # Enrichissement DVF automatique (facultatif)
+    if not dpe_df.empty:
+        with st.spinner("Récupération des infos DVF…"):
+            unique_addresses = dpe_df["full_address"].dropna().drop_duplicates().head(50).tolist()
             dvf_data = fetch_dvf_for_addresses(unique_addresses)
             dpe_df["dvf_count"] = dpe_df["full_address"].map(lambda a: len(dvf_data.get(a, [])))
             dpe_df["dvf"] = dpe_df["full_address"].map(lambda a: dvf_data.get(a, []))
-    else:
-        dpe_df["dvf_count"] = 0
-        dpe_df["dvf"] = [[] for _ in range(len(dpe_df))]
-
 else:
-    st.info("Aucune ville n’a encore été sélectionnée. Ajoutez-en au moins une pour lancer une recherche.")
+    st.info("Ajoutez au moins une ville pour commencer la recherche.")
 
-# ---- Affichage permanent carte + tableau ----
+# ---- Affichage permanent ----
 with left:
     selected_row_id = st.session_state.get("selected_row_id")
     render_map(df=dpe_df, extent=extent, selected_row_id=selected_row_id)
@@ -183,4 +157,4 @@ with right:
 if not dpe_df.empty:
     st.success(f"{len(dpe_df)} logements affichés.")
 else:
-    st.caption("Aucun résultat correspondant pour les filtres actuels (carte et tableau visibles).")
+    st.caption("Aucun résultat pour les filtres actuels (carte et tableau visibles).")
