@@ -1,3 +1,6 @@
+import sys, os
+sys.path.append(os.path.dirname(__file__))
+
 import streamlit as st
 from utils.auth import auth_gate
 from ui.main_interface import render_main_interface
