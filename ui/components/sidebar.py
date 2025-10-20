@@ -36,8 +36,31 @@ def render_sidebar(state: AppState, svc: SearchService):
 
     # Filtres surface
     st.sidebar.subheader("Surface habitable (m²)")
-    smin, smax = st.sidebar.slider("Plage", min_value=0, max_value=1000, value=(state.surface_min, state.surface_max), step=5)
-    state.surface_min, state.surface_max = smin, smax
+
+    col_min, col_max = st.sidebar.columns(2)
+    with col_min:
+        smin = st.number_input(
+            "Min",
+            min_value=0,
+            max_value=10000,
+            value=state.surface_min,
+            step=5,
+            key="surface_min_input"
+        )
+    with col_max:
+        smax = st.number_input(
+            "Max",
+            min_value=0,
+            max_value=10000,
+            value=state.surface_max,
+            step=5,
+            key="surface_max_input"
+        )
+
+    # synchroniser avec l'état global
+    state.surface_min = smin
+    state.surface_max = smax
+
 
     # Filtres DPE & GES
     st.sidebar.subheader("Filtres DPE")
