@@ -23,22 +23,25 @@ def render_main_interface():
     # -------------------------------------------------------
     st.sidebar.header("🎛️ Filtres de recherche")
 
-    # --- Villes dynamiques ---
-    if "villes" not in st.session_state:
-        st.session_state["villes"] = []
+# --- Villes dynamiques sans freeze ---
+if "villes" not in st.session_state:
+    st.session_state["villes"] = []
 
-    new_ville = st.sidebar.text_input("Ajouter une ville (tapez Entrée)")
-    if new_ville:
-        g = geocode_city(new_ville)
-        if g:
-            ville_label = f"{new_ville.title()} ({g.get('code_postal','?')})"
-            if ville_label not in st.session_state["villes"]:
-                st.session_state["villes"].append(ville_label)
-                st.session_state["repere_coords"] = (g["lat"], g["lon"])
-                st.sidebar.success(f"{ville_label} ajoutée ✅")
-        else:
-            st.sidebar.warning("Ville introuvable.")
-        st.rerun()
+st.sidebar.markdown("#### Ajouter une ville")
+with st.sidebar.form("form_ajout_ville"):
+    new_ville = st.text_input("Nom de la ville")
+    submit_ville = st.form_submit_button("Ajouter")
+
+if submit_ville and new_ville:
+    g = geocode_city(new_ville)
+    if g:
+        ville_label = f"{new_ville.title()} ({g.get('code_postal','?')})"
+        if ville_label not in st.session_state["villes"]:
+            st.session_state["villes"].append(ville_label)
+            st.session_state["repere_coords"] = (g["lat"], g["lon"])
+            st.sidebar.success(f"{ville_label} ajoutée ✅")
+    else:
+        st.sidebar.warning("Ville introuvable.")
 
     # Liste des villes actives
     if st.session_state["villes"]:
