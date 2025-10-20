@@ -15,7 +15,7 @@ def render_sidebar(state: AppState, svc: SearchService):
         q = st.text_input("Ville", placeholder="Ex: Lyon, Paris, ...")
         submitted = st.form_submit_button("Ajouter la ville")
         if submitted and q:
-            matches = svc.geocode_city(q, postcode=pc or None)
+            matches = svc.geocode_city(q or None)
             if matches:
                 chosen = matches[0]  # premier résultat
                 # éviter doublons (par citycode)
