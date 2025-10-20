@@ -17,9 +17,7 @@ from core.postal_layers import get_postalcode_geojson
 
 def render_main_interface():
     st.title("🏠 Carte interactive DPE / GES + DVF")
-    st.markdown(
-        "Ajoutez une ou plusieurs villes, filtrez selon les classes DPE / GES et visualisez les résultats sur la carte."
-    )
+    st.markdown("Ajoutez une ou plusieurs villes, filtrez selon les classes DPE / GES et visualisez les résultats sur la carte.")
 
     # -------------------------------------------------------
     # VARIABLES DE SESSION
@@ -27,7 +25,6 @@ def render_main_interface():
     if "villes" not in st.session_state:
         st.session_state["villes"] = []
 
-    # Données initiales
     df = pd.DataFrame()
 
     # -------------------------------------------------------
@@ -91,7 +88,7 @@ def render_main_interface():
 
     # --- Carte ---
     map_type = st.sidebar.selectbox("Type de carte", ["Classique", "Satellite"])
-    show_postal_layer = st.sidebar.checkbox("Contours codes postaux", True)
+    show_postal_layer = st.sidebar.checkbox("Contours des codes postaux", True)
     show_cadastre = st.sidebar.checkbox("Parcelles cadastrales (IGN)", False)
 
     launch = st.sidebar.button("🚀 Lancer la recherche")
@@ -147,14 +144,12 @@ def render_main_interface():
             st.warning("Aucune ville valide sélectionnée.")
             return
 
-        # Codes postaux des villes
         code_postaux = []
         for v in villes:
             g = geocode_city(v)
             if g and g["code_postal"]:
                 code_postaux.append(g["code_postal"])
 
-        # Codes postaux dans le rayon
         if radius > 0:
             rayon_cp = get_postal_codes_in_radius(bary, radius)
             if rayon_cp:
@@ -165,62 +160,66 @@ def render_main_interface():
 
         code_postaux = sorted(set(code_postaux))
 
+        # --- Contours postaux ---
+        if show_postal_layer and code_postaux:
+            geojson = get_postalcode_geojson(code_postaux)
+            if geojson and geojson.get("features"):
+                folium.GeoJson(
+                    geojson,
+                    name="Contours postaux",
+                    style_function=lambda x: {"color": "#ff6600", "weight": 2, "opacity": 0.6},
+                    tooltip=folium.GeoJsonTooltip(fields=["nom", "codePostal"]),
+                ).add_to(m)
+
+        # --- Couches cadastrales ---
+        if show_cadastre:
+            folium.raster_layers.WmsTileLayer(
+                url="https://mapserver.cadastre.data.gouv.fr/wms",
+                layers="parcelles",
+                name="Cadastre (parcelles)",
+                fmt="image/png",
+                transparent=True,
+                opacity=0.6,
+                attribution="© Cadastre data.gouv.fr",
+            ).add_to(m)
+
         # --- Données ADEME ---
-        df = fetch_ademe_all(code_postaux)
-        if df.empty:
-            st.warning("Aucun résultat trouvé.")
-        else:
-            if "classe_consommation_energie" in df:
-                df = df[df["classe_consommation_energie"].isin(dpe_selected)] if dpe_selected else df
-            if "classe_estimation_ges" in df:
-                df = df[df["classe_estimation_ges"].isin(ges_selected)] if ges_selected else df
-            if "surface_habitable_logement" in df:
-                df = df[
-                    (df["surface_habitable_logement"] >= surface_min)
-                    & (df["surface_habitable_logement"] <= surface_max)
-                ]
-            if radius > 0:
-                df = filter_ademe_data_by_radius(df, bary[0], bary[1], radius)
-
+        if code_postaux:
+            df = fetch_ademe_all(code_postaux)
             if df.empty:
-                st.warning("Aucun logement ne correspond aux filtres.")
+                st.warning("Aucun résultat trouvé.")
             else:
-                cluster = MarkerCluster().add_to(m)
-                for _, r in df.iterrows():
-                    popup = f"""
-                    <b>{r.get('adresse_nom_voie','?')}</b><br>
-                    DPE: {r.get('classe_consommation_energie','?')}<br>
-                    GES: {r.get('classe_estimation_ges','?')}<br>
-                    Surface: {r.get('surface_habitable_logement','?')} m²<br>
-                    """
-                    folium.Marker(
-                        location=[r["latitude"], r["longitude"]],
-                        popup=popup,
-                        icon=folium.Icon(color="blue", icon="home"),
-                    ).add_to(cluster)
+                if "classe_consommation_energie" in df:
+                    df = df[df["classe_consommation_energie"].isin(dpe_selected)] if dpe_selected else df
+                if "classe_estimation_ges" in df:
+                    df = df[df["classe_estimation_ges"].isin(ges_selected)] if ges_selected else df
+                if "surface_habitable_logement" in df:
+                    df = df[
+                        (df["surface_habitable_logement"] >= surface_min)
+                        & (df["surface_habitable_logement"] <= surface_max)
+                    ]
+                if radius > 0:
+                    df = filter_ademe_data_by_radius(df, bary[0], bary[1], radius)
 
-                if show_postal_layer and code_postaux:
-                    geojson = get_postalcode_geojson(code_postaux)
-                    if geojson:
-                        folium.GeoJson(
-                            geojson,
-                            name="Contours postaux",
-                            style_function=lambda x: {"color": "#ff6600", "weight": 2, "opacity": 0.6},
-                        ).add_to(m)
+                if df.empty:
+                    st.warning("Aucun logement ne correspond aux filtres.")
+                else:
+                    cluster = MarkerCluster().add_to(m)
+                    for _, r in df.iterrows():
+                        popup = f"""
+                        <b>{r.get('adresse_nom_voie','?')}</b><br>
+                        DPE: {r.get('classe_consommation_energie','?')}<br>
+                        GES: {r.get('classe_estimation_ges','?')}<br>
+                        Surface: {r.get('surface_habitable_logement','?')} m²<br>
+                        """
+                        folium.Marker(
+                            location=[r["latitude"], r["longitude"]],
+                            popup=popup,
+                            icon=folium.Icon(color="blue", icon="home"),
+                        ).add_to(cluster)
 
-                if show_cadastre:
-                    folium.raster_layers.WmsTileLayer(
-                        url="https://wxs.ign.fr/cadastre/geoportail/r/wms",
-                        layers="CADASTRALPARCELS.PARCELS",
-                        name="Cadastre",
-                        fmt="image/png",
-                        transparent=True,
-                        opacity=0.6,
-                        attribution="© IGN Cadastre",
-                    ).add_to(m)
-
-                folium.LayerControl().add_to(m)
-                st_folium(m, width=1200, height=600)
+        folium.LayerControl().add_to(m)
+        st_folium(m, width=1200, height=600)
 
     # -------------------------------------------------------
     # TABLEAU DES RÉSULTATS
