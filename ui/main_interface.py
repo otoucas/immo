@@ -23,11 +23,11 @@ def render_main_interface():
         st.header("🎛️ Filtres de recherche")
 
         # --- Cases à cocher DPE et GES
-        st.markdown("#### DPE")
+        st.markdown("####")
         dpe_classes = ["A", "B", "C", "D", "E", "F", "G"]
         dpe_sel = [c for c in dpe_classes if st.checkbox(f"DPE {c}", key=f"dpe_{c}")]
 
-        st.markdown("#### GES")
+        st.markdown("####")
         ges_classes = ["A", "B", "C", "D", "E", "F", "G"]
         ges_sel = [c for c in ges_classes if st.checkbox(f"GES {c}", key=f"ges_{c}")]
 
