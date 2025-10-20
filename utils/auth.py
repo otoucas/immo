@@ -1,64 +1,52 @@
-import time, json
+# utils/auth.py
 import streamlit as st
+import time
+import json
+from streamlit_cookies_manager import EncryptedCookieManager
 
-try:
-    from streamlit_cookies_manager import EncryptedCookieManager
-except Exception:
-    EncryptedCookieManager = None
+COOKIE_NAME = "session_dpe_auth"
+COOKIE_KEY = st.secrets.get("COOKIE_KEY", "secret-cookie-key")
+APP_PASSWORD = st.secrets.get("APP_PASSWORD", "demo1234")
 
 
-def auth_gate() -> bool:
-    """Formulaire de mot de passe + cookie 30 jours."""
-    APP_PASSWORD = st.secrets.get("APP_PASSWORD")  # 🔐 mot de passe par défaut corrigé
-    COOKIE_KEY = st.secrets.get("COOKIE_KEY")
-    COOKIE_NAME = "dpe_auth_v1"
-    MAX_AGE_SEC = 30 * 24 * 3600
+def auth_gate():
+    """Écran d'authentification avec cookie de persistance (30 jours)."""
+    cookies = EncryptedCookieManager(prefix=COOKIE_NAME, password=COOKIE_KEY)
+    cookies_ready = False
 
-    cookies_ok = EncryptedCookieManager is not None
-    cookies = None
-    if cookies_ok:
-        cookies = EncryptedCookieManager(prefix="dpe_app", password=COOKIE_KEY)
-        if not cookies.ready:
-            st.warning("⏳ Initialisation du gestionnaire de cookies...")
-            time.sleep(1)
-            st.rerun()
+    # 🔹 Tente d'initialiser le cookie manager
+    try:
+        if cookies.ready():
+            cookies_ready = True
+    except Exception:
+        st.info("🔄 Initialisation des cookies...")
+        time.sleep(0.5)
+        st.rerun()
 
-    # Cookie existant ?
-    if cookies_ok and cookies:
-        raw = cookies.get(COOKIE_NAME)
-        if raw:
-            try:
+    # 🔹 Vérifie si une session existe déjà
+    if cookies_ready:
+        try:
+            raw = cookies.get(COOKIE_NAME)
+            if raw:
                 data = json.loads(raw)
-                exp = float(data.get("exp", 0))
-                if exp > time.time():
-                    st.session_state["_auth_ok"] = True
+                if data.get("authenticated") is True:
                     return True
-            except Exception:
-                pass
+        except Exception:
+            pass
 
-    # Si déjà connecté
-    if st.session_state.get("_auth_ok", False):
-        return True
+    # 🔹 Sinon, demande le mot de passe
+    st.title("🔐 Accès à la carte DPE / DVF")
+    st.markdown("Veuillez entrer le mot de passe pour accéder à l'application.")
+    pwd = st.text_input("Mot de passe", type="password")
 
-    # Sinon, afficher le formulaire dans un container centré
-    with st.container():
-        st.markdown("### 🔐 Accès protégé")
-        st.write("Veuillez entrer le mot de passe pour accéder à l’outil.")
-        with st.form("auth_form", clear_on_submit=False):
-            pwd = st.text_input("Mot de passe", type="password")
-            remember = st.checkbox("Se souvenir pendant 30 jours", value=True)
-            submitted = st.form_submit_button("Entrer")
+    if st.button("Se connecter"):
+        if pwd == APP_PASSWORD:
+            # Stocke l'authentification dans un cookie valable 30 jours
+            cookies.set(COOKIE_NAME, json.dumps({"authenticated": True}), expires_at="30d")
+            cookies.save()
+            st.success("Connexion réussie ✅")
+            st.rerun()
+        else:
+            st.error("Mot de passe incorrect.")
 
-        if submitted:
-            if pwd == APP_PASSWORD:
-                if cookies_ok and remember and cookies:
-                    payload = {"exp": time.time() + MAX_AGE_SEC}
-                    cookies.set(COOKIE_NAME, json.dumps(payload), max_age=MAX_AGE_SEC)
-                    cookies.save()
-                st.session_state["_auth_ok"] = True
-                st.success("Accès autorisé ✅")
-                st.rerun()
-            else:
-                st.error("Mot de passe incorrect.")
-
-    return False
+    st.stop()
