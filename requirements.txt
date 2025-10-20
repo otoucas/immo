@@ -1,7 +1,0 @@
-streamlit
-pandas
-requests
-folium
-streamlit-folium
-beautifulsoup4
-streamlit-cookies-manager
