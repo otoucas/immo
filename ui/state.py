@@ -4,7 +4,6 @@ from typing import List, Dict, Optional
 @dataclass
 class AppState:
     selected_cities: List[Dict] = field(default_factory=list)
-    extra_postcodes: List[str] = field(default_factory=list)
     dpe_filters: List[str] = field(default_factory=list)  # ["A","B",...]
     ges_filters: List[str] = field(default_factory=list)
     surface_min: int = 50
