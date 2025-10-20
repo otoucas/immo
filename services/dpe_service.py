@@ -6,63 +6,61 @@ import pandas as pd
 
 from config import settings
 
-# --- Helpers
 
-def _build_dpe_query(cities: List[Dict[str, Any]], min_surface: Optional[int], max_surface: Optional[int], limit: int) -> Dict[str, Any]:
+def fetch_dpe(
+    cities: List[Dict[str, Any]],
+    min_surface: Optional[int],
+    max_surface: Optional[int],
+    limit: int = 500,
+) -> pd.DataFrame:
     """
-    Build a Data Fair query for ADEME DPE dataset.
-    Filters by INSEE city codes when available, fallback to city label otherwise.
+    Fetch DPE data from ADEME Data Fair API (dataset dpe-v2-logements).
+    Returns DataFrame with address, DPE, GES, surface, etc.
     """
-    filters = []
 
-    # Common field names in ADEME DPE datasets (may vary slightly). Adjust if needed.
-    # We'll try by INSEE first (code_commune_insee) else by commune
-    insee_codes = [g.get("insee") for g in cities if g.get("insee")]
-    labels = [g.get("city") for g in cities if g.get("city")]
+    url = f"{settings.ADEME_BASE_URL}/dpe-v2-logements/search"
+
+    # Construction du texte de requête "qs" au lieu des filtres formels
+    qs_parts = []
+
+    # Communes (INSEE ou nom)
+    insee_codes = [c.get("insee") for c in cities if c.get("insee")]
+    noms = [c.get("city") for c in cities if c.get("city")]
 
     if insee_codes:
-        filters.append({"field": "code_commune_insee", "operator": "in", "value": insee_codes})
-    elif labels:
-        filters.append({"field": "nom_commune", "operator": "in", "value": labels})
+        qs_parts.append(" OR ".join([f'code_insee_commune_actualise:"{c}"' for c in insee_codes]))
+    elif noms:
+        qs_parts.append(" OR ".join([f'nom_commune:"{n}"' for n in noms]))
 
-    if min_surface is not None:
-        filters.append({"field": "surface_habitable_logement", "operator": ">=", "value": min_surface})
-    if max_surface is not None:
-        filters.append({"field": "surface_habitable_logement", "operator": "<=", "value": max_surface})
+    # Surfaces
+    if min_surface:
+        qs_parts.append(f"surface_habitable_logement:[{min_surface} TO *]")
+    if max_surface:
+        qs_parts.append(f"surface_habitable_logement:[* TO {max_surface}]")
 
-    return {
+    query_str = " AND ".join(qs_parts) if qs_parts else None
+
+    payload = {
         "size": limit,
         "q": None,
+        "qs": query_str,
         "format": "json",
         "source": "default",
-        "page": 1,
-        "sort": [{"field": "date_etablissement_dpe", "order": "desc"}],
         "include": [
             "nom_commune",
-            "code_commune_insee",
             "code_postal",
-            "numero_voie",
-            "nom_voie",
-            "type_voie",
-            "code_departement",
+            "code_insee_commune_actualise",
             "latitude",
             "longitude",
             "classe_consommation_energie",
             "classe_estimation_ges",
             "surface_habitable_logement",
             "date_etablissement_dpe",
+            "numero_voie",
+            "nom_voie",
+            "type_voie",
         ],
-        "facets": [],
-        "filters": filters,
     }
-
-
-def fetch_dpe(cities: List[Dict[str, Any]], min_surface: Optional[int], max_surface: Optional[int], limit: int = 500) -> pd.DataFrame:
-    """Fetch DPE rows from ADEME Data Fair API and normalize into a DataFrame.
-    Returns columns: full_address, city, insee, lat, lon, dpe, ges, surface, date_dpe
-    """
-    url = f"{settings.ADEME_BASE_URL}/{settings.DPE_DATASET_SLUG}/search"
-    payload = _build_dpe_query(cities, min_surface, max_surface, limit)
 
     try:
         r = requests.post(url, json=payload, timeout=60)
@@ -70,8 +68,11 @@ def fetch_dpe(cities: List[Dict[str, Any]], min_surface: Optional[int], max_surf
         js = r.json()
         rows = js.get("results", []) or js.get("hits", [])
     except Exception as e:
-        # Fail gracefully with empty DF
-        return pd.DataFrame(columns=["full_address", "city", "insee", "lat", "lon", "dpe", "ges", "surface", "date_dpe"])
+        print("Erreur DPE API:", e)
+        return pd.DataFrame()
+
+    if not rows:
+        return pd.DataFrame()
 
     def fmt_address(row: Dict[str, Any]) -> str:
         parts = [
@@ -85,21 +86,21 @@ def fetch_dpe(cities: List[Dict[str, Any]], min_surface: Optional[int], max_surf
 
     recs = []
     for row in rows:
-        recs.append({
-            "full_address": fmt_address(row),
-            "city": row.get("nom_commune"),
-            "insee": row.get("code_commune_insee"),
-            "lat": row.get("latitude"),
-            "lon": row.get("longitude"),
-            "dpe": row.get("classe_consommation_energie"),
-            "ges": row.get("classe_estimation_ges"),
-            "surface": row.get("surface_habitable_logement"),
-            "date_dpe": row.get("date_etablissement_dpe"),
-        })
+        recs.append(
+            {
+                "full_address": fmt_address(row),
+                "city": row.get("nom_commune"),
+                "insee": row.get("code_insee_commune_actualise"),
+                "lat": row.get("latitude"),
+                "lon": row.get("longitude"),
+                "dpe": row.get("classe_consommation_energie"),
+                "ges": row.get("classe_estimation_ges"),
+                "surface": row.get("surface_habitable_logement"),
+                "date_dpe": row.get("date_etablissement_dpe"),
+            }
+        )
 
     df = pd.DataFrame.from_records(recs)
-
-    # Drop rows without coordinates (can't place them on the map)
     df = df.dropna(subset=["lat", "lon"]).reset_index(drop=True)
 
     return df
